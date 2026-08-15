@@ -27,6 +27,19 @@
         # 想在单机看到推荐效果改成 1 —— 但要清楚这是在关掉一条隐私红线。
         kAnonymityThreshold: 5
 
+    # 换成联网 provider：把上面 social-local 整段注释掉，换成下面这段。
+    # 接口相同，consumer 一行都不用改 —— 这是当初把 SocialService 抽出来的目的。
+    #
+    # - id: social-cloud
+    #   name: '/Users/derek/code/dsh-social/packages/cloud/src/index.ts'
+    #   config:
+    #     endpoint: 'https://social.example.com'
+    #     timeoutMs: 10000
+    #
+    # 切之前先读 packages/cloud/src/index.ts 的文件头：那里穷举了
+    # 「什么数据会离开这台机器」。还有 relevant() 上面那段注释 ——
+    # 调用时机是隐私决定，不是性能决定。
+
     # Consumer：观察对话、生成草稿。唯一消耗 token 的包
     - id: social-curator
       name: '/Users/derek/code/dsh-social/packages/curator/src/index.ts'

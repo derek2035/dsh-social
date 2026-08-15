@@ -14,6 +14,9 @@ importers:
       '@deepseek-ai/dsh-commands':
         specifier: link:../deepseek-harness/packages/interaction/commands
         version: link:../deepseek-harness/packages/interaction/commands
+      '@deepseek-ai/dsh-credentials':
+        specifier: link:../deepseek-harness/packages/credentials/credentials
+        version: link:../deepseek-harness/packages/credentials/credentials
       '@deepseek-ai/dsh-llm':
         specifier: link:../deepseek-harness/packages/llm/llm
         version: link:../deepseek-harness/packages/llm/llm
@@ -30,6 +33,12 @@ importers:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+
+  packages/cloud:
+    dependencies:
+      '@dsh-social/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/commands:
     dependencies:

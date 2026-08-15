@@ -16,6 +16,8 @@ import { build } from 'esbuild'
 
 const entries = {
   local: 'packages/local/src/index.ts',
+  // cloud 也打进来，但 cordis.patch.yml 里默认不启用 —— 切换只需改配置
+  cloud: 'packages/cloud/src/index.ts',
   curator: 'packages/curator/src/index.ts',
   commands: 'packages/commands/src/index.ts',
 }

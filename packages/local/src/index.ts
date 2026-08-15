@@ -10,13 +10,13 @@
  * 隐私性质：这个 provider 不碰网络。数据全在本机一个 JSON 文件里。
  */
 
-import { mkdir, readFile, writeFile, rename } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 
 import type { Context } from '@deepseek-ai/cordis'
 import {
+  JsonStore,
   SocialService,
   asCardId,
   cosine,
@@ -26,21 +26,6 @@ import {
   type DecisionRecord,
 } from '@dsh-social/core'
 
-interface StoredCard {
-  readonly id: string
-  readonly claim: string
-  readonly reasoning?: string
-  readonly topicVector: readonly number[]
-  readonly createdAt: number
-}
-
-interface Store {
-  version: 1
-  cards: StoredCard[]
-  decisions: DecisionRecord[]
-}
-
-const EMPTY: Store = { version: 1, cards: [], decisions: [] }
 
 export interface LocalConfig {
   /** 存储路径。默认 ~/.dsh-social/local-store.json */
@@ -70,20 +55,19 @@ export interface LocalConfig {
  * private 只是编译期约束，运行时是普通属性，穿得过代理。
  */
 class SocialLocal extends SocialService {
-  private readonly path: string
+  private readonly store: JsonStore
   private readonly k: number
   private readonly floor: number
-  /** 串行化写入，避免并发 publish 互相覆盖。 */
-  private queue: Promise<unknown> = Promise.resolve()
 
   constructor(ctx: Context, config: LocalConfig = {}) {
     super(ctx)
-    this.path = config.storePath
-      ?? join(homedir(), '.dsh-social', 'local-store.json')
+    this.store = new JsonStore(
+      config.storePath ?? join(homedir(), '.dsh-social', 'local-store.json'),
+    )
     this.k = config.kAnonymityThreshold ?? 5
     this.floor = config.similarityFloor ?? 0.25
 
-    console.log(`[social/local] 存储位置 ${this.path}`)
+    console.log(`[social/local] 存储位置 ${this.store.path}`)
     console.log(`[social/local] k-匿名门槛 ${this.k}（本机数据不足时 relevant() 返回空是正常的）`)
   }
 
@@ -91,8 +75,7 @@ class SocialLocal extends SocialService {
     // 架构红线：过审守卫必须是第一行。
     SocialLocal.assertApproved(card)
 
-    return this.serialize(async () => {
-      const store = await this.read()
+    return this.store.mutate(async (store) => {
       const id = card.id.length > 0 ? card.id : asCardId(randomUUID())
       store.cards.push({
         id,
@@ -101,15 +84,13 @@ class SocialLocal extends SocialService {
         topicVector: card.topicVector,
         createdAt: card.createdAt,
       })
-      await this.write(store)
       console.log(`[social/local] 已发布卡片 ${id}`)
       return id
     })
   }
 
   override async retract(id: CardId): Promise<boolean> {
-    return this.serialize(async () => {
-      const store = await this.read()
+    return this.store.mutate(async (store) => {
       const before = store.cards.length
       // 真删，不是打标记。架构红线③：按引用渲染，删除必须传播。
       store.cards = store.cards.filter(c => c.id !== id)
@@ -117,7 +98,6 @@ class SocialLocal extends SocialService {
         console.log(`[social/local] 撤回：未找到 ${id}`)
         return false
       }
-      await this.write(store)
       console.log(`[social/local] 已撤回 ${id}`)
       return true
     })
@@ -127,7 +107,7 @@ class SocialLocal extends SocialService {
     vector: readonly number[],
     limit: number,
   ): Promise<RemoteCard[]> {
-    const store = await this.read()
+    const store = await this.store.read()
 
     // k-匿名门槛：池子里卡片总数不足时，什么都不返回。
     // 设计文档 5.3：数据不足时整个隐藏，比展示一个空位更好。
@@ -148,52 +128,16 @@ class SocialLocal extends SocialService {
   }
 
   override async recordDecision(record: DecisionRecord): Promise<void> {
-    return this.serialize(async () => {
-      const store = await this.read()
+    await this.store.mutate((store) => {
       store.decisions.push(record)
-      await this.write(store)
     })
   }
 
   override async listDecisions(): Promise<readonly DecisionRecord[]> {
-    const store = await this.read()
+    const store = await this.store.read()
     return store.decisions
   }
 
-  // ── 内部 ──────────────────────────────────────────────────
-
-  private serialize<T>(fn: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(fn, fn)
-    // 吞掉链上的错误，避免一次失败毒化后续所有写入
-    this.queue = next.then(() => undefined, () => undefined)
-    return next
-  }
-
-  private async read(): Promise<Store> {
-    try {
-      const raw = await readFile(this.path, 'utf8')
-      const parsed = JSON.parse(raw) as Partial<Store>
-      return {
-        version: 1,
-        cards: Array.isArray(parsed.cards) ? parsed.cards : [],
-        decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
-      }
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code
-      if (code === 'ENOENT') return structuredClone(EMPTY)
-      // 文件损坏时不要静默重置——那会悄悄抹掉用户数据
-      console.error(`[social/local] 存储读取失败 ${this.path}:`, err)
-      throw err
-    }
-  }
-
-  private async write(store: Store): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true })
-    // 原子写：先写临时文件再 rename，避免崩溃时留下半个 JSON
-    const tmp = `${this.path}.${process.pid}.tmp`
-    await writeFile(tmp, JSON.stringify(store, null, 2), 'utf8')
-    await rename(tmp, this.path)
-  }
 }
 
 export const name = 'social-local'

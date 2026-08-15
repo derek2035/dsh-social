@@ -144,9 +144,20 @@ export function apply(ctx: Context): void {
           userApproved: true,
         }
 
-        const id = await social.publish(card)
-        publishedIds.add(String(id))
+        // 用户已经做出决定了。发布可能因为网络失败，但**决定本身发生了**，
+        // 转化率要测的正是这个决定。所以两件事必须分开记：
+        //   记了 cardId  → 用户决定发布，且真的发出去了
+        //   没有 cardId  → 用户决定发布，但没送达
+        // 只在成功时才 record，会让转化率在联网 provider 下系统性偏低。
         pending.delete(draft.draftId)
+        let id: CardId
+        try {
+          id = await social.publish(card)
+        } catch (err) {
+          await record(draft, 'published')
+          throw err
+        }
+        publishedIds.add(String(id))
         await record(draft, 'published', id)
         return `已发布。撤回：/social-retract ${String(id).slice(0, 8)}`
       },
