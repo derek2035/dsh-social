@@ -1,0 +1,8 @@
+{
+  "name": "@dsh-social/core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Service Definition：类型、抽象服务、本地脱敏与话题向量",
+  "exports": { ".": "./src/index.ts" }
+}

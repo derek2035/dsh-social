@@ -1,0 +1,36 @@
+# dsh-social 组合包的配置层。
+#
+# 和开发用的 ../cordis.yml 的区别：这里的 name 是**包名子路径**，不是绝对源码路径。
+# 原因见官方「打包与安装插件」：patch 行按包名引用，Node 的模块解析才找得到
+# 已安装的代码。绝对路径那种写法只在 --patch overlay 里用。
+#
+# 安装：
+#   dsh plugin --profile web add /Users/derek/code/dsh-social/bundle
+# 之后照常 `dsh web` 即可，不需要再带 --patch。
+#
+# 改了源码要重新生效：
+#   pnpm run build:bundle
+#   然后重启 dsh
+
+- insert:
+    # Service Provider：本地落盘，不碰网络
+    - id: social-local
+      name: 'dsh-social-plugin/local'
+      config:
+        # 本机只有你一个人，卡片数永远不够门槛，relevant() 返回空是正常的。
+        # 想在单机看到推荐效果改成 1 —— 但要清楚这是在关掉一条隐私红线。
+        kAnonymityThreshold: 5
+
+    # Consumer：观察对话、生成草稿。唯一消耗 token 的包
+    - id: social-curator
+      name: 'dsh-social-plugin/curator'
+      config:
+        # 打印每轮的字数/工具调用数/是否够格提议，卸载时打印事件类型直方图。
+        # 日常用不想看日志就改成 false。
+        probe: true
+        # 只保留手动命令、完全不自动调模型：改成 true
+        manualOnly: false
+
+    # Consumer：用户动作。刻意不注册任何 tool
+    - id: social-commands
+      name: 'dsh-social-plugin/commands'

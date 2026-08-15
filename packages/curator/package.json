@@ -1,0 +1,9 @@
+{
+  "name": "@dsh-social/curator",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Consumer：观察对话、判断时机、生成草稿。唯一消耗 token 的包，可单独关闭",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@dsh-social/core": "workspace:*" }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "dsh-social",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek Harness 社交插件 —— AI 代笔、默认匿名的观点交换网络",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --experimental-strip-types test/*.test.ts",
+    "build:bundle": "node scripts/build-bundle.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "link:../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-commands": "link:../deepseek-harness/packages/interaction/commands",
+    "@deepseek-ai/dsh-llm": "link:../deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-session": "link:../deepseek-harness/packages/core/session"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@dsh-social/commands",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Consumer：用户动作。刻意不注册任何 tool —— 发布不能是模型动作",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@dsh-social/core": "workspace:*" }
+}

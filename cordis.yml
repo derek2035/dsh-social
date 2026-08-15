@@ -1,0 +1,41 @@
+# dsh-social 的 patch overlay
+#
+# ⚠️ 路径必须是绝对路径（官方文档明确要求）。
+#    把 /Users/derek/code/dsh-social 保持原样即可，如果你把项目挪了位置，
+#    这三行都要改。
+#
+# 启动：
+#   cd <你的 deepseek-harness 检出目录>
+#   PATH=/usr/local/bin:$PATH pnpm dsh web \
+#     --patch /Users/derek/code/dsh-social/cordis.yml --port 3081
+#
+# ⚠️ --patch 必须写在 --port 之前。--patch 是 launcher 的 flag，--port 是 app 的参数，
+#    launcher 的解析在第一个它不认识的 token 处就停了，之后原样交给 app。
+#    写反了会报 unknown option '--patch'。
+#
+# 加载顺序有讲究：
+#   local 是 provider，必须在 commands 之前 —— commands 声明了
+#   inject: ['social']，框架会等 social 服务就绪才加载它。
+#   curator 无强依赖，位置随意。
+
+- insert:
+    # Service Provider：本地落盘，不碰网络
+    - id: social-local
+      name: '/Users/derek/code/dsh-social/packages/local/src/index.ts'
+      config:
+        # 本机只有你一个人，卡片数永远不够门槛，relevant() 返回空是正常的。
+        # 想在单机看到推荐效果改成 1 —— 但要清楚这是在关掉一条隐私红线。
+        kAnonymityThreshold: 5
+
+    # Consumer：观察对话、生成草稿。唯一消耗 token 的包
+    - id: social-curator
+      name: '/Users/derek/code/dsh-social/packages/curator/src/index.ts'
+      config:
+        # 第一次跑必开：文档只列了事件名，没列 payload 结构
+        probe: true
+        # 不确定 LLM 计费时先开这个，只保留手动命令
+        manualOnly: false
+
+    # Consumer：用户动作。刻意不注册任何 tool
+    - id: social-commands
+      name: '/Users/derek/code/dsh-social/packages/commands/src/index.ts'

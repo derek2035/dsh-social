@@ -1,0 +1,29 @@
+{
+  "name": "dsh-social-plugin",
+  "version": "0.0.1",
+  "description": "dsh-social：AI 代笔、默认匿名的观点交换网络（组合包）",
+  "type": "module",
+  "exports": {
+    "./local": "./dist/local.js",
+    "./curator": "./dist/curator.js",
+    "./commands": "./dist/commands.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-llm": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": { "optional": true },
+    "@deepseek-ai/dsh-llm": { "optional": true }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

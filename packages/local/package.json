@@ -1,0 +1,9 @@
+{
+  "name": "@dsh-social/local",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Service Provider：本地落盘 mock，不碰网络",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@dsh-social/core": "workspace:*" }
+}
