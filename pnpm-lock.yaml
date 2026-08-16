@@ -60,6 +60,12 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  server:
+    dependencies:
+      '@dsh-social/core':
+        specifier: workspace:*
+        version: link:../packages/core
+
 packages:
 
   '@esbuild/aix-ppc64@0.28.2':
