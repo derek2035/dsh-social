@@ -443,9 +443,23 @@ node --experimental-strip-types server/bin.ts \
 cloudflared tunnel --url http://127.0.0.1:4000
 ```
 
-⚠️ **快速隧道是临时的**：`cloudflared` 一重启就换地址，发布出去的包里那个
-默认 endpoint 就失效了。要稳定地址需要 named tunnel，那要 cloudflare 账号登录。
-在那之前，换地址不用改包 —— 设环境变量即可：
+### 固定地址：`https://social.c01.link`
+
+cloudflare named tunnel，建在你自己的域名 `c01.link` 上。**重启不变。**
+
+```bash
+cloudflared tunnel run dsh-social          # 起隧道
+cloudflared tunnel list                     # 看状态
+```
+
+配置在 `~/.cloudflared/config.yml`，凭据在
+`~/.cloudflared/d078b839-9706-4c5c-a163-4b6e66fd9d4e.json`（**别提交，别外传**）。
+DNS 是一条 CNAME：`social.c01.link` → 隧道 ID。
+
+隧道进程挂了插件就连不上。要长期跑的话该做成开机自启
+（`cloudflared service install`），现在是手工 nohup 起的。
+
+换服务端不用改包 —— 设环境变量即可：
 
 ```bash
 export DSH_SOCIAL_ENDPOINT=https://新地址

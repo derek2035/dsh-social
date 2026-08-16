@@ -59,8 +59,7 @@ retract   cardId、公钥、签名
 
 ## 换服务端 / 自建
 
-默认 endpoint 指向一条 cloudflare 快速隧道，**它会在隧道重启后失效**。
-换地址不用改配置文件：
+默认 endpoint 是 `https://social.c01.link`。换成自己的不用改配置文件：
 
 ```bash
 export DSH_SOCIAL_ENDPOINT=https://你的地址
