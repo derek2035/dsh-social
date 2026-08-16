@@ -456,8 +456,41 @@ cloudflared tunnel list                     # 看状态
 `~/.cloudflared/d078b839-9706-4c5c-a163-4b6e66fd9d4e.json`（**别提交，别外传**）。
 DNS 是一条 CNAME：`social.c01.link` → 隧道 ID。
 
-隧道进程挂了插件就连不上。要长期跑的话该做成开机自启
-（`cloudflared service install`），现在是手工 nohup 起的。
+已配成开机自启（launchd system daemon），root 身份跑，重启自动拉起。
+配置在 `/etc/cloudflared/config.yml`，凭据 `/etc/cloudflared/*.json`。
+
+### ⚠️ `cloudflared service install` 装出来的服务是空转的
+
+这个坑连踩三轮，记清楚：
+
+1. **`service install` 生成的 plist 只有一个光秃秃的可执行文件路径**，
+   不带 `--config`，也不带 `tunnel run`。那样跑起来只打印一句
+   「Use `cloudflared tunnel run` to start tunnel」就退出，
+   `KeepAlive` 再把它拉起来 —— 无限空转。
+   `launchctl` 里有条目、`ps` 里有进程，**看起来一切正常，隧道从没连上**。
+
+2. **它读 `/etc/cloudflared/config.yml`，而 `tunnel login`/`tunnel create`
+   把东西写进 `~/.cloudflared/`。** 两边对不上，且不报错。
+   得手动把 config 和凭据 JSON 复制过去，并把 config 里的
+   `credentials-file` 路径改成 `/etc/cloudflared/...`。
+
+3. **重装服务不会修好参数** —— 2026.3.0 就是这个行为。
+   得直接改 plist 的 `ProgramArguments`：
+   ```
+   /opt/homebrew/bin/cloudflared --no-autoupdate \
+     --config /etc/cloudflared/config.yml tunnel run
+   ```
+
+4. **改完 plist 后 `launchctl kickstart -k` 不够** —— 它只重启进程，
+   仍用 launchd 缓存的旧参数。必须 bootout 再 bootstrap：
+   ```bash
+   sudo launchctl bootout system/com.cloudflare.cloudflared
+   sudo launchctl bootstrap system /Library/LaunchDaemons/com.cloudflare.cloudflared.plist
+   ```
+
+**验证方法（唯一可信的那个）**：杀掉所有手工起的 cloudflared，
+只留 root 服务进程，然后 curl 那个地址。撑住 200 才算真成。
+前两轮我都误判成功过 —— 因为手工进程还在后台顶着。
 
 换服务端不用改包 —— 设环境变量即可：
 
