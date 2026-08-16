@@ -11,13 +11,18 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/react": "^18.3.31",
     "esbuild": "^0.28.2",
     "typescript": "^5.9.0"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "link:../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-client-runtime": "link:../deepseek-harness/packages/client/runtime",
+    "@deepseek-ai/dsh-client-ui-conversation": "link:../deepseek-harness/packages/client/ui-conversation",
+    "@deepseek-ai/dsh-client-ui-slots": "link:../deepseek-harness/packages/client/ui-slots",
     "@deepseek-ai/dsh-commands": "link:../deepseek-harness/packages/interaction/commands",
     "@deepseek-ai/dsh-credentials": "link:../deepseek-harness/packages/credentials/credentials",
+    "@deepseek-ai/dsh-host-webserver": "link:../deepseek-harness/packages/host/webserver",
     "@deepseek-ai/dsh-llm": "link:../deepseek-harness/packages/llm/llm",
     "@deepseek-ai/dsh-session": "link:../deepseek-harness/packages/core/session"
   }

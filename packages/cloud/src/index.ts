@@ -157,6 +157,26 @@ class SocialCloud extends SocialService {
     })
   }
 
+  override async square(limit: number): Promise<RemoteCard[]> {
+    const res = await this.request('GET', `/v1/cards/square?limit=${limit}`, {
+      allowStatus: [404],
+    })
+    // 404 = 服务端没开广场（默认姿态）。不是错误，是配置。
+    if (res.status === 404) return []
+
+    const json = await res.json() as { cards?: unknown }
+    if (!Array.isArray(json.cards)) return []
+    return json.cards.flatMap((raw): RemoteCard[] => {
+      const c = raw as Record<string, unknown>
+      if (typeof c['cardId'] !== 'string' || typeof c['claim'] !== 'string') return []
+      return [{
+        id: asCardId(c['cardId']),
+        claim: c['claim'],
+        ...(typeof c['reasoning'] === 'string' ? { reasoning: c['reasoning'] } : {}),
+      }]
+    })
+  }
+
   /** 只落本地。理由见文件头。 */
   override async recordDecision(record: DecisionRecord): Promise<void> {
     await this.decisions.mutate((store) => {

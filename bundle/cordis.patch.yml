@@ -13,13 +13,12 @@
 #   然后重启 dsh
 
 - insert:
-    # Service Provider：本地落盘，不碰网络
-    - id: social-local
-      name: 'dsh-social-plugin/local'
+    # 联网 provider。想退回纯本地就把这段换成 social-local（见 README）。
+    - id: social-cloud
+      name: 'dsh-social-plugin/cloud'
       config:
-        # 本机只有你一个人，卡片数永远不够门槛，relevant() 返回空是正常的。
-        # 想在单机看到推荐效果改成 1 —— 但要清楚这是在关掉一条隐私红线。
-        kAnonymityThreshold: 5
+        endpoint: 'http://127.0.0.1:4000'
+        timeoutMs: 10000
 
     # Consumer：观察对话、生成草稿。唯一消耗 token 的包
     - id: social-curator
@@ -34,3 +33,13 @@
     # Consumer：用户动作。刻意不注册任何 tool
     - id: social-commands
       name: 'dsh-social-plugin/commands'
+
+    # 宿主半：给浏览器的话题广场提供数据路由。
+    #
+    # ⚠️ 这一行必须用**裸包名**，不能写成 'dsh-social-plugin/web'。
+    #    client 模块扫描器是按 loader entry 的名字去查包元数据的，
+    #    子路径说明符（xxx/web）查不到包，于是 dsh.client 声明被当成
+    #    「非 client 包」缓存掉，浏览器半永远不会被加载，而且**不报错**。
+    #    包根的 exports 指向 dist/web.js，所以这行和 /web 是同一份代码。
+    - id: social-web
+      name: 'dsh-social-plugin'

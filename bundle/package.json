@@ -4,11 +4,14 @@
   "description": "dsh-social：AI 代笔、默认匿名的观点交换网络（组合包）",
   "type": "module",
   "exports": {
+    ".": "./dist/web.js",
+    "./client": "./dist/client.js",
     "./cloud": "./dist/cloud.js",
     "./commands": "./dist/commands.js",
     "./curator": "./dist/curator.js",
     "./local": "./dist/local.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./web": "./dist/web.js"
   },
   "files": [
     "dist",
@@ -16,7 +19,8 @@
   ],
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-llm": "*"
+    "@deepseek-ai/dsh-llm": "*",
+    "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -24,11 +28,20 @@
     },
     "@deepseek-ai/dsh-llm": {
       "optional": true
+    },
+    "react": {
+      "optional": true
     }
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
     }
   }
 }

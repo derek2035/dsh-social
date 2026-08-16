@@ -12,6 +12,7 @@
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,
+    "jsx": "react-jsx",
 
     "skipLibCheck": true,
     "noEmit": true,

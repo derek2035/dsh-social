@@ -38,6 +38,19 @@ export interface ServerConfig {
   /** 每个公钥的写操作配额：桶容量 / 每秒补充数。 */
   readonly writeBurst?: number
   readonly writePerSec?: number
+  /** 读操作配额（按来源 IP）。k-匿名是逐查询过滤，没有读限流就能被逐步逼近。 */
+  readonly readBurst?: number
+  readonly readPerSec?: number
+  /**
+   * ★ 话题广场：GET /v1/cards/square 返回全部卡片，**完全绕过 k-匿名**。
+   *
+   * 默认关闭。它存在的唯一理由是「还没有用户时快速测通流程」——
+   * 没有别人发卡，k-匿名门槛永远满足不了，广场会一直是空的，没法验证链路。
+   *
+   * 开着它上公网 = 任何人都能拉到所有人发过的全部卡片。
+   * 上线前必须关掉。启动时会大声警告，别把警告当噪音。
+   */
+  readonly devPublicSquare?: boolean
 }
 
 /** claim 和 reasoning 的长度上限。卡片是一句观点，不是文章。 */
@@ -53,6 +66,18 @@ export function createSocialServer(config: ServerConfig = {}) {
   // 写操作限流：默认允许攒 10 次、每分钟回 6 次。
   // 正常用户一天发不了几条，这个额度绰绰有余；刷屏的会被卡住。
   const writeLimiter = new RateLimiter(config.writeBurst ?? 10, config.writePerSec ?? 0.1)
+  // 读操作按来源 IP 限流。k-匿名是逐查询过滤，攻击者可以变换查询向量逐步逼近，
+  // 限流是把「逐步逼近」的成本抬上去的那一半。
+  const readLimiter = new RateLimiter(config.readBurst ?? 60, config.readPerSec ?? 1)
+  const publicSquare = config.devPublicSquare ?? false
+
+  if (publicSquare) {
+    console.warn('')
+    console.warn('  ⚠️  话题广场已开启（devPublicSquare）')
+    console.warn('     /v1/cards/square 会返回**所有人的全部卡片**，完全绕过 k-匿名。')
+    console.warn('     这是给「还没有用户时测通流程」用的开关，对外开放前必须关掉。')
+    console.warn('')
+  }
 
   // nonce 表只需要覆盖时间窗，定期清掉窗外的，避免无限增长
   const pruneTimer = setInterval(() => {
@@ -77,7 +102,12 @@ export function createSocialServer(config: ServerConfig = {}) {
       return retract(req, res, raw, decodeURIComponent(url.pathname.slice('/v1/cards/'.length)))
     }
     if (req.method === 'POST' && url.pathname === '/v1/cards/relevant') {
+      if (!allowRead(req, res)) return
       return relevant(res, raw)
+    }
+    if (req.method === 'GET' && url.pathname === '/v1/cards/square') {
+      if (!allowRead(req, res)) return
+      return square(res, url)
     }
     send(res, 404, { error: 'not found' })
   }
@@ -179,6 +209,38 @@ export function createSocialServer(config: ServerConfig = {}) {
 
     store.remove(cardId)
     sendEmpty(res, 204)
+  }
+
+  /**
+   * 话题广场：返回全部卡片，不做 k-匿名过滤。
+   *
+   * 关着的时候返回 404 而不是 403 —— 对外不暴露「这里有个开关」这件事。
+   */
+  function square(res: ServerResponse, url: URL): void {
+    if (!publicSquare) return send(res, 404, { error: 'not found' })
+
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? 50) || 50, 200)
+    const all = store.all()
+    const cards = [...all]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit)
+      .map(c => ({
+        cardId: c.cardId,
+        claim: c.claim,
+        ...(c.reasoning === undefined ? {} : { reasoning: c.reasoning }),
+        createdAt: c.createdAt,
+        // publisher 仍然不返回 —— 广场绕过的是 k-匿名，不是匿名本身。
+        // 「谁发的」在任何模式下都不出服务端。
+      }))
+    send(res, 200, { cards, total: all.length })
+  }
+
+  /** 读限流按来源 IP —— 读操作不验签，没有公钥可依。 */
+  function allowRead(req: IncomingMessage, res: ServerResponse): boolean {
+    const ip = req.socket.remoteAddress ?? 'unknown'
+    if (readLimiter.take(ip, Date.now())) return true
+    send(res, 429, { error: '查询过于频繁' })
+    return false
   }
 
   function relevant(res: ServerResponse, raw: string): void {

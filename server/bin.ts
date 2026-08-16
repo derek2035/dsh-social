@@ -21,9 +21,12 @@ const port = Number(flag('--port') ?? 4000)
 const k = Number(flag('-k') ?? flag('--k-anonymity') ?? 5)
 
 const dbPath = flag('--db')
+// 话题广场：还没有用户时用它测通流程。对外开放前必须去掉这个参数。
+const square = args.includes('--dev-square')
 
 const app = createSocialServer({
   kAnonymityThreshold: k,
+  devPublicSquare: square,
   ...(dbPath === undefined ? {} : { dbPath }),
 })
 await app.listen(port)

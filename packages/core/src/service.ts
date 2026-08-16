@@ -50,6 +50,17 @@ export abstract class SocialService extends Service {
    */
   abstract relevant(vector: readonly number[], limit: number): Promise<RemoteCard[]>
 
+  /**
+   * 话题广场：拉最近的卡片，**不做话题过滤**。
+   *
+   * ⚠️ 它绕过 k-匿名，所以服务端默认关闭这个接口（返回 404）。
+   *    存在的理由是「还没有用户时快速测通流程」：没有别人发卡，
+   *    k-匿名门槛永远满足不了，relevant() 恒为空，链路没法验证。
+   *
+   * 对外开放前必须在服务端关掉。见 server/src/index.ts 的 devPublicSquare。
+   */
+  abstract square(limit: number): Promise<RemoteCard[]>
+
   /** 记录用户对草稿的决定。转化率指标的数据源。 */
   abstract recordDecision(record: DecisionRecord): Promise<void>
 

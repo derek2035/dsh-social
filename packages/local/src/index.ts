@@ -127,6 +127,19 @@ class SocialLocal extends SocialService {
       }))
   }
 
+  /** 本地广场就是本机发过的全部卡片。 */
+  override async square(limit: number): Promise<RemoteCard[]> {
+    const store = await this.store.read()
+    return [...store.cards]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit)
+      .map(c => ({
+        id: asCardId(c.id),
+        claim: c.claim,
+        ...(c.reasoning === undefined ? {} : { reasoning: c.reasoning }),
+      }))
+  }
+
   override async recordDecision(record: DecisionRecord): Promise<void> {
     await this.store.mutate((store) => {
       store.decisions.push(record)

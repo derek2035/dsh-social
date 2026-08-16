@@ -52,3 +52,7 @@
     # Consumer：用户动作。刻意不注册任何 tool
     - id: social-commands
       name: '/Users/derek/code/dsh-social/packages/commands/src/index.ts'
+
+    # 宿主半：给浏览器的话题广场提供数据路由
+    - id: social-web
+      name: '/Users/derek/code/dsh-social/packages/web/src/index.ts'
