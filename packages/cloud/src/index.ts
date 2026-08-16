@@ -34,8 +34,17 @@ import {
 } from '@dsh-social/core'
 import { loadIdentity, type DeviceIdentity } from './identity.ts'
 
+/**
+ * 环境变量覆盖 endpoint。
+ *
+ * 为什么要有它：发布出去的包里写死一个地址，地址一换所有用户都得改配置。
+ * 有了它，换服务端只是 `export DSH_SOCIAL_ENDPOINT=...`，
+ * 想自建服务端的人也不用改插件。
+ */
+const ENDPOINT_ENV = 'DSH_SOCIAL_ENDPOINT'
+
 export interface CloudConfig {
-  /** 服务端基址，例如 https://social.example.com */
+  /** 服务端基址，例如 https://social.example.com。可被 DSH_SOCIAL_ENDPOINT 覆盖。 */
   readonly endpoint: string
   /** 单次请求超时（毫秒）。 */
   readonly timeoutMs?: number
@@ -62,7 +71,12 @@ class SocialCloud extends SocialService {
 
   constructor(ctx: Context, config: CloudConfig) {
     super(ctx)
-    this.endpoint = config.endpoint.replace(/\/+$/, '')
+    const fromEnv = process.env[ENDPOINT_ENV]?.trim()
+    this.endpoint = (fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : config.endpoint)
+      .replace(/\/+$/, '')
+    if (fromEnv !== undefined && fromEnv.length > 0) {
+      console.log(`[social/cloud] endpoint 来自环境变量 ${ENDPOINT_ENV}`)
+    }
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS
     this.decisions = new JsonStore(
       config.decisionStorePath ?? join(homedir(), '.dsh-social', 'local-store.json'),

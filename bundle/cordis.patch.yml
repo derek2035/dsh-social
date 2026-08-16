@@ -17,7 +17,11 @@
     - id: social-cloud
       name: 'dsh-social-plugin/cloud'
       config:
-        endpoint: 'http://127.0.0.1:4000'
+        # ⚠️ 这是一条 cloudflare 快速隧道，指向作者本机。它会在隧道重启后失效。
+        #    换服务端不用改这个文件 —— 设环境变量即可：
+        #      export DSH_SOCIAL_ENDPOINT=https://你的地址
+        #    想完全不联网就把这段换成 social-local（见 README）。
+        endpoint: 'https://catalyst-mercury-closure-soa.trycloudflare.com'
         timeoutMs: 10000
 
     # Consumer：观察对话、生成草稿。唯一消耗 token 的包

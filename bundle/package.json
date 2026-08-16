@@ -1,7 +1,7 @@
 {
   "name": "dsh-social-plugin",
   "version": "0.0.1",
-  "description": "dsh-social：AI 代笔、默认匿名的观点交换网络（组合包）",
+  "description": "DeepSeek Harness 社交插件：AI 代笔、默认匿名、逐条过审的观点交换网络",
   "type": "module",
   "exports": {
     ".": "./dist/web.js",
@@ -15,7 +15,9 @@
   },
   "files": [
     "dist",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
   ],
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
@@ -43,5 +45,16 @@
         "@deepseek-ai/dsh-client-ui-slots"
       ]
     }
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "social",
+    "anonymous",
+    "privacy"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
   }
 }

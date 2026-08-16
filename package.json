@@ -13,7 +13,8 @@
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.31",
     "esbuild": "^0.28.2",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "@deepseek-ai/dsh-credentials-local": "link:../deepseek-harness/packages/credentials/credentials-local"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "link:../deepseek-harness/vendor/cordis",

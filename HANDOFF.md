@@ -421,6 +421,84 @@ SQLite，不是 JSON 文件：卡片会持续增长，而撤回必须真删 —�
 
 ---
 
+## 发布与部署（2026-08-16）
+
+### 现在的运行形态
+
+```
+浏览器（话题广场）
+  ↓ /social-api/square
+DSH 宿主（social-web 插件）
+  ↓ ctx.social
+cloud provider
+  ↓ https://<cloudflare 快速隧道>
+本机服务端 :4000  ← SQLite: ~/.dsh-social/server.db
+```
+
+起服务端和隧道：
+
+```bash
+node --experimental-strip-types server/bin.ts \
+  --db ~/.dsh-social/server.db --port 4000 -k 1 --dev-square
+cloudflared tunnel --url http://127.0.0.1:4000
+```
+
+⚠️ **快速隧道是临时的**：`cloudflared` 一重启就换地址，发布出去的包里那个
+默认 endpoint 就失效了。要稳定地址需要 named tunnel，那要 cloudflare 账号登录。
+在那之前，换地址不用改包 —— 设环境变量即可：
+
+```bash
+export DSH_SOCIAL_ENDPOINT=https://新地址
+```
+
+换完跑一次冒烟确认：
+
+```bash
+DSH_HOME=/tmp/smoke node --experimental-strip-types \
+  scripts/smoke-remote.ts https://新地址
+```
+
+它会用一把全新密钥模拟新用户，走完 发布 → 广场 → 撤回三态。
+
+### 发布到 npm
+
+包已经是可发布形态（`bundle/`），`npm pack` 验过内容。**最后一步没做**：
+本机 npm 未登录，而且 `npm publish` 不可逆（npm 的 unpublish 有严格限制）。
+
+```bash
+cd bundle
+npm login
+npm publish --access public
+```
+
+名字 `dsh-social-plugin` 在 npm 上还没被占。发布后别人：
+
+```bash
+dsh plugin --profile web add -w dsh-social-plugin
+dsh web
+```
+
+发完记得在 GitHub 仓库打 `dsh-plugin` topic —— 那是 DSH 生态的发现方式。
+
+### 已验证：全新用户能直接用
+
+模拟过一次完整的「另一个用户」：全新 `DSH_HOME` → 从 tarball 安装 →
+启动 → 插件加载 → 默认连公网地址 → 广场看到卡片 → 用真实的
+`LocalCredentialProvider` 生成身份 → 发布 → 撤回。全过程零配置。
+
+### ★ 话题广场绕过了 k-匿名
+
+服务端的 `--dev-square` 让 `/v1/cards/square` 返回**所有人的全部卡片**。
+它存在的唯一理由是：还没有用户时，k-匿名门槛永远满足不了，
+`relevant()` 恒为空，链路没法验证。
+
+**对外开放前必须去掉 `--dev-square`。** 启动时有横幅警告。
+广场在关闭时返回 404 而不是 403 —— 不对外暴露「这里有个开关」。
+
+注意：绕过的是 k-匿名，**不是匿名本身**。任何模式下 `publisher` 公钥都不出服务端。
+
+---
+
 ## 踩过的坑
 
 以下五条都是**真机跑一次才暴露**的，静态检查和单测全都发现不了。

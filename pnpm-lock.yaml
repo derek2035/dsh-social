@@ -36,6 +36,9 @@ importers:
         specifier: link:../deepseek-harness/packages/core/session
         version: link:../deepseek-harness/packages/core/session
     devDependencies:
+      '@deepseek-ai/dsh-credentials-local':
+        specifier: link:../deepseek-harness/packages/credentials/credentials-local
+        version: link:../deepseek-harness/packages/credentials/credentials-local
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
