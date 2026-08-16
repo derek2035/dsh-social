@@ -1,7 +1,7 @@
 {
   "name": "dsh-social-plugin",
-  "version": "0.0.2",
-  "description": "DeepSeek Harness 社交插件：AI 代笔、默认匿名、逐条过审的观点交换网络",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 社交插件：AI 代笔、默认匿名、逐条过审的观点交换网络。话题广场、话题内匿名对话。",
   "type": "module",
   "exports": {
     ".": "./dist/web.js",
