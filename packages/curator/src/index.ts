@@ -58,7 +58,13 @@ export const name = 'social-curator'
  *    「等两个叫 required 和 optional 的服务」，插件因此永远 PENDING，
  *    启动直接报 `2 entries did not activate`。真机跑一次才暴露出来。
  */
-export const inject = ['llm']
+/**
+ * 'social' 是因为 pumpTopics 要读 ctx.social（关注列表和话题发言）。
+ * 少了它真机会报 `cannot get property "social" without inject` ——
+ * cordis 的 ctx 是代理，没 inject 过的服务名读不到，而且**只在运行到那行时才炸**，
+ * 启动阶段一切正常。这是第二次栽在 inject 上了。
+ */
+export const inject = ['llm', 'social']
 
 /** 当前轮次的累积器。 */
 interface Accumulator {
