@@ -31,6 +31,7 @@ import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as socialLocal from '../packages/local/src/index.ts'
 import * as socialCommands from '../packages/commands/src/index.ts'
 import * as socialCurator from '../packages/curator/src/index.ts'
+import { injectTopics } from '../packages/curator/src/inject.ts'
 import { asCardId, topicVector, type OpinionCard } from '../packages/core/src/index.ts'
 
 // ── 替身 ────────────────────────────────────────────────────────
@@ -168,7 +169,16 @@ describe('插件 × cordis 接缝', () => {
     const { ctx } = await harness()
     assert.ok(ctx.social, 'ctx.social 应该由 local provider 提供')
     // 激活失败时 inject 的 consumer 会永远 PENDING —— 回归 bug ②
-    assert.equal(fakeCommands(ctx).registered.size, 5, '五个 /social-* 命令都应注册上')
+    // 断言具体命令名而不是数量 —— 加一个命令不该让这条测试挂掉，
+    // 但少了任何一个用户动作必须立刻发现
+    const names = [...fakeCommands(ctx).registered.keys()].sort()
+    for (const required of [
+      'social-publish', 'social-discard', 'social-pending',
+      'social-retract', 'social-stats',
+      'social-join', 'social-leave', 'social-say',
+    ]) {
+      assert.ok(names.includes(required), `缺少命令 ${required}，实际：${names.join()}`)
+    }
   })
 
   test('经 cordis 代理调用 service 不炸（回归：# 私有字段）', async () => {
@@ -265,5 +275,47 @@ describe('插件 × cordis 接缝', () => {
     const store = JSON.parse(await readFile(storePath, 'utf8'))
     assert.equal(store.cards.length, 1, '卡片应该落盘')
     assert.equal(store.decisions.length, 1, '决定记录应该落盘（转化率的唯一数据源）')
+  })
+
+  // ── 话题发言注入会话流 ────────────────────────────────────────
+
+  test('★ 注入的是 plugin 来源的消息，不是伪装成用户说的话', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create()
+
+    const injected = injectTopics(session, [{
+      topicId: asCardId('card-1'),
+      title: '远程办公',
+      messages: [
+        { messageId: 'm1', alias: 'afnd', text: '异步协作对新人更难', createdAt: 1 },
+        { messageId: 'm2', alias: 'e48w', text: '门槛高不等于学不到', createdAt: 2 },
+      ],
+    }], 'social-curator')
+    assert.equal(injected, true)
+
+    const events = session.events
+    const msg = [...events].reverse().find(e => e.type === 'user/message')
+    assert.ok(msg, '应该往会话里写了一条 user/message')
+
+    const source = (msg.data as { message?: { source?: Record<string, unknown> } }).message?.source
+      ?? (msg.data as { source?: Record<string, unknown> }).source
+    assert.equal(source?.['kind'], 'plugin',
+      '必须是 plugin 来源。写成 kind:user 等于在日志里伪装成用户说的话')
+    assert.equal(source?.['plugin'], 'social-curator')
+    assert.equal(source?.['form'], 'snapshot',
+      'snapshot 是可替换的，token 成本才有上界；逐条追加会无限增长')
+  })
+
+  test('没有新发言时不注入 —— 空快照会占 prompt 且留下一行空的注入痕迹', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create()
+    const before = (session.events).length
+
+    const injected = injectTopics(session, [
+      { topicId: asCardId('card-1'), title: 't', messages: [] },
+    ], 'social-curator')
+
+    assert.equal(injected, false)
+    assert.equal((session.events).length, before)
   })
 })

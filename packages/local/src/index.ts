@@ -26,6 +26,7 @@ import {
   type OpinionCard,
   type RemoteCard,
   type SquareGroup,
+  type TopicMessage,
   type DecisionRecord,
 } from '@dsh-social/core'
 
@@ -151,6 +152,38 @@ class SocialLocal extends SocialService {
         ...(x.reasoning === undefined ? {} : { reasoning: x.reasoning }),
       })),
     }))
+  }
+
+  /**
+   * 本地 provider 没有「别人」，话题讨论无处可去。
+   *
+   * 抛错而不是静默成功：静默成功会让用户以为发出去了，
+   * 而实际上没有任何人收得到 —— 那是这个项目一直在避免的那类谎。
+   */
+  override async say(): Promise<void> {
+    throw new Error('本地模式没有其他用户，话题讨论需要联网 provider（social-cloud）')
+  }
+
+  /** 本地模式恒为空。不是错误，是这个 provider 的定义。 */
+  override async messages(): Promise<TopicMessage[]> {
+    return []
+  }
+
+
+  override async join(topicId: CardId): Promise<void> {
+    await this.store.mutate((store) => {
+      if (!store.topics.includes(String(topicId))) store.topics.push(String(topicId))
+    })
+  }
+
+  override async leave(topicId: CardId): Promise<void> {
+    await this.store.mutate((store) => {
+      store.topics = store.topics.filter(t => t !== String(topicId))
+    })
+  }
+
+  override async joined(): Promise<readonly CardId[]> {
+    return (await this.store.read()).topics.map(asCardId)
   }
 
   override async recordDecision(record: DecisionRecord): Promise<void> {

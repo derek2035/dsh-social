@@ -6,7 +6,9 @@
  */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { CardId, OpinionCard, RemoteCard, SquareGroup, DecisionRecord } from './types.ts'
+import type {
+  CardId, OpinionCard, RemoteCard, SquareGroup, TopicMessage, DecisionRecord,
+} from './types.ts'
 import { assertApproved } from './guard.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -60,6 +62,29 @@ export abstract class SocialService extends Service {
    * 对外开放前必须在服务端关掉。见 server/src/index.ts 的 devPublicSquare。
    */
   abstract square(limit: number): Promise<SquareGroup[]>
+
+  /**
+   * 在一个话题下发言。话题 id 就是那张卡片的 id ——
+   * 话题不是独立实体，是「一张卡片加上它引发的讨论」。
+   *
+   * 这是**用户动作**。红线①同样适用：它不能被注册成 tool。
+   */
+  abstract say(topicId: CardId, text: string): Promise<void>
+
+  /**
+   * 拉一个话题的发言。
+   *
+   * @param since 上次拿到的最大 createdAt，增量拉取用。
+   */
+  abstract messages(topicId: CardId, since: number): Promise<TopicMessage[]>
+
+  /**
+   * 关注 / 取关一个话题。**纯本地状态，不上传** ——
+   * 服务端不需要知道谁在看什么，那是额外的关联信息。
+   */
+  abstract join(topicId: CardId): Promise<void>
+  abstract leave(topicId: CardId): Promise<void>
+  abstract joined(): Promise<readonly CardId[]>
 
   /** 记录用户对草稿的决定。转化率指标的数据源。 */
   abstract recordDecision(record: DecisionRecord): Promise<void>

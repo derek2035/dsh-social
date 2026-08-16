@@ -33,6 +33,16 @@
         probe: true
         # 只保留手动命令、完全不自动调模型：改成 true
         manualOnly: false
+        # ⚠️ 把关注话题里别人的发言注入你的会话流。默认关闭。
+        #
+        #    打开它意味着接受三件事：
+        #      ① 花 token —— 别人的话进 prompt，每轮都发
+        #      ② AI 会接话 —— 它看得见，可能主动评论陌生人的观点
+        #      ③ 别人的话落进你本机的会话日志，永久保留
+        #
+        #    设计文档第 7 节把「进模型上下文」划给了阶段 4 房间模式，
+        #    这个开关就是那条线。详见 packages/curator/src/inject.ts。
+        injectTopics: false
 
     # Consumer：用户动作。刻意不注册任何 tool
     - id: social-commands

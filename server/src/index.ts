@@ -21,6 +21,7 @@ import { ServerStore, type ServerCard } from './store.ts'
 import { verifyRequest, CLOCK_SKEW_MS } from './verify.ts'
 import { normalizeIncoming } from './vector.ts'
 import { RateLimiter } from './ratelimit.ts'
+import { aliasFor } from './alias.ts'
 
 export interface ServerConfig {
   readonly port?: number
@@ -56,6 +57,8 @@ export interface ServerConfig {
 /** claim 和 reasoning 的长度上限。卡片是一句观点，不是文章。 */
 const MAX_CLAIM_CHARS = 500
 const MAX_REASONING_CHARS = 1000
+/** 话题内一条发言的长度上限。是讨论不是长文。 */
+const MAX_MESSAGE_CHARS = 800
 
 const MAX_BODY_BYTES = 64 * 1024
 
@@ -108,6 +111,16 @@ export function createSocialServer(config: ServerConfig = {}) {
     if (req.method === 'GET' && url.pathname === '/v1/cards/square') {
       if (!allowRead(req, res)) return
       return square(res, url)
+    }
+    const msgMatch = /^\/v1\/cards\/([^/]+)\/messages$/.exec(url.pathname)
+    if (msgMatch !== null) {
+      const cardId = decodeURIComponent(msgMatch[1] ?? '')
+      if (req.method === 'POST') return postMessage(req, res, raw, cardId)
+      if (req.method === 'GET') {
+        if (!allowRead(req, res)) return
+        return listMessages(res, url, cardId)
+      }
+      return send(res, 405, { error: 'method not allowed' })
     }
     send(res, 404, { error: 'not found' })
   }
@@ -208,6 +221,8 @@ export function createSocialServer(config: ServerConfig = {}) {
     if (card.publisher !== requester) return send(res, 403, { error: '不是发布者' })
 
     store.remove(cardId)
+    // 讨论也是内容。卡片真删了，它下面的发言不能留着变成孤儿。
+    store.removeMessagesOf(cardId)
     sendEmpty(res, 204)
   }
 
@@ -242,6 +257,68 @@ export function createSocialServer(config: ServerConfig = {}) {
     }))
 
     send(res, 200, { groups, total: all.length })
+  }
+
+  /**
+   * 在一个话题下发言。
+   *
+   * 话题 id 就是那张卡片的 id —— 话题不是独立实体，它是「一张卡片
+   * 加上它引发的讨论」。这样撤回卡片就自然地带走整场讨论，
+   * 不需要额外的生命周期管理。
+   */
+  function postMessage(
+    req: IncomingMessage,
+    res: ServerResponse,
+    raw: string,
+    cardId: string,
+  ): void {
+    const author = authorizeWrite(req, res, raw)
+    if (author === undefined) return
+
+    if (store.get(cardId) === undefined) {
+      return send(res, 404, { error: '话题不存在（卡片可能已被撤回）' })
+    }
+
+    let body: { text?: unknown, cardId?: unknown }
+    try { body = JSON.parse(raw) } catch { return send(res, 400, { error: 'bad json' }) }
+    // 签名覆盖的是 body 里的 cardId，必须和路径一致，否则一个签名能被挪到别的话题
+    if (body.cardId !== cardId) {
+      return send(res, 400, { error: '签名覆盖的 cardId 与路径不一致' })
+    }
+    if (typeof body.text !== 'string' || body.text.trim().length === 0) {
+      return send(res, 400, { error: 'text 必填' })
+    }
+    if (body.text.length > MAX_MESSAGE_CHARS) {
+      return send(res, 400, { error: `发言超过 ${MAX_MESSAGE_CHARS} 字` })
+    }
+
+    const message = {
+      messageId: randomUUID(),
+      cardId,
+      publisher: author,
+      text: body.text,
+      createdAt: Date.now(),
+    }
+    store.addMessage(message)
+    send(res, 200, { messageId: message.messageId, alias: aliasFor(author, cardId) })
+  }
+
+  /**
+   * 拉一个话题的发言。
+   *
+   * 不验签：话题内容本来就是公开的（能看到卡片就能看到讨论）。
+   * 但**绝不返回 publisher**，只返回每话题化名 —— 见 alias.ts 文件头。
+   */
+  function listMessages(res: ServerResponse, url: URL, cardId: string): void {
+    const since = Number(url.searchParams.get('since') ?? 0) || 0
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? 50) || 50, 200)
+    const messages = store.messages(cardId, since, limit).map(m => ({
+      messageId: m.messageId,
+      alias: aliasFor(m.publisher, cardId),
+      text: m.text,
+      createdAt: m.createdAt,
+    }))
+    send(res, 200, { messages })
   }
 
   /** 读限流按来源 IP —— 读操作不验签，没有公钥可依。 */

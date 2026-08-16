@@ -23,6 +23,23 @@ export interface ServerCard {
   readonly createdAt: number
 }
 
+export interface ServerMessage {
+  readonly messageId: string
+  readonly cardId: string
+  /** 发言者公钥。绝不返回给客户端 —— 客户端只拿得到每话题化名。 */
+  readonly publisher: string
+  readonly text: string
+  readonly createdAt: number
+}
+
+interface MessageRow {
+  message_id: string
+  card_id: string
+  publisher: string
+  text: string
+  created_at: number
+}
+
 interface CardRow {
   card_id: string
   claim: string
@@ -50,6 +67,14 @@ export class ServerStore {
       );
       CREATE INDEX IF NOT EXISTS cards_publisher ON cards (publisher);
       CREATE TABLE IF NOT EXISTS bans (public_key TEXT PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS messages (
+        message_id TEXT PRIMARY KEY,
+        card_id    TEXT NOT NULL,
+        publisher  TEXT NOT NULL,
+        text       TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS messages_card ON messages (card_id, created_at);
       CREATE TABLE IF NOT EXISTS seen_nonces (
         nonce   TEXT PRIMARY KEY,
         seen_at INTEGER NOT NULL
@@ -92,6 +117,33 @@ export class ServerStore {
     const row = this.db.prepare('SELECT COUNT(*) AS n FROM cards WHERE publisher = ?')
       .get(publicKey) as { n: number }
     return row.n
+  }
+
+  addMessage(m: ServerMessage): void {
+    this.db.prepare(
+      `INSERT INTO messages (message_id, card_id, publisher, text, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(m.messageId, m.cardId, m.publisher, m.text, m.createdAt)
+  }
+
+  /** 按时间正序拉一个话题的消息。since 是上次拿到的最大 createdAt。 */
+  messages(cardId: string, since: number, limit: number): ServerMessage[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM messages WHERE card_id = ? AND created_at > ?
+       ORDER BY created_at ASC LIMIT ?`,
+    ).all(cardId, since, limit) as unknown as MessageRow[]
+    return rows.map(r => ({
+      messageId: r.message_id,
+      cardId: r.card_id,
+      publisher: r.publisher,
+      text: r.text,
+      createdAt: r.created_at,
+    }))
+  }
+
+  /** 卡片被撤回时，它下面的讨论一起删 —— 撤回必须是真删，讨论也是内容。 */
+  removeMessagesOf(cardId: string): void {
+    this.db.prepare('DELETE FROM messages WHERE card_id = ?').run(cardId)
   }
 
   ban(publicKey: string): void {

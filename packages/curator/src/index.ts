@@ -30,6 +30,7 @@ import {
 } from '@dsh-social/core'
 import { judge, DEFAULT_HEURISTICS, type HeuristicConfig, type TurnStats } from './heuristics.ts'
 import { callModel, type Route } from './llm.ts'
+import { injectTopics, type TopicFeed } from './inject.ts'
 
 export interface CuratorConfig {
   readonly heuristics?: Partial<HeuristicConfig>
@@ -37,6 +38,14 @@ export interface CuratorConfig {
   readonly probe?: boolean
   /** 关掉自动提议，只保留手动命令。不确定 LLM 计费时先用这个。 */
   readonly manualOnly?: boolean
+  /**
+   * 把关注话题里别人的发言注入会话流。**默认关闭。**
+   *
+   * 打开它意味着接受三件事：花 token、AI 会接话、别人的话落进你本机日志。
+   * 详见 inject.ts 文件头 —— 那三条是设计文档第 7 节明确权衡过的，
+   * 所以这必须是用户的显式选择。
+   */
+  readonly injectTopics?: boolean
 }
 
 export const name = 'social-curator'
@@ -153,6 +162,8 @@ export function apply(ctx: Context, config: CuratorConfig = {}): void {
           return
         }
         void handleTurnEnd(session, acc)
+        // 轮次结束是注入的自然边界：不打断进行中的对话，也不需要定时器。
+        if (config.injectTopics === true) void pumpTopics(session)
         return
       }
 
@@ -160,6 +171,38 @@ export function apply(ctx: Context, config: CuratorConfig = {}): void {
         return
     }
   })
+
+  /** 每个话题上次注入到哪条时间戳。避免同一条发言被重复注入。 */
+  const topicCursor = new Map<string, number>()
+
+  /**
+   * 拉关注话题的新发言并注入会话流。
+   *
+   * 整段吞错：这是附加功能，网络抖一下不该影响用户的正常对话。
+   */
+  async function pumpTopics(session: Session): Promise<void> {
+    try {
+      const topics = await ctx.social.joined()
+      if (topics.length === 0) return
+
+      const feeds: TopicFeed[] = []
+      for (const topicId of topics) {
+        const key = String(topicId)
+        const since = topicCursor.get(key) ?? 0
+        const messages = await ctx.social.messages(topicId, since)
+        if (messages.length === 0) continue
+        topicCursor.set(key, Math.max(...messages.map(m => m.createdAt)))
+        feeds.push({ topicId, title: key.slice(0, 8), messages })
+      }
+
+      if (injectTopics(session, feeds, name) && probe) {
+        const n = feeds.reduce((sum, f) => sum + f.messages.length, 0)
+        console.log(`[social] 已注入 ${n} 条话题发言到会话流`)
+      }
+    } catch (err) {
+      if (probe) console.log(`[social] 拉取话题发言失败：${(err as Error).message}`)
+    }
+  }
 
   async function handleTurnEnd(session: Session, a: Accumulator): Promise<void> {
     const stats: TurnStats = {

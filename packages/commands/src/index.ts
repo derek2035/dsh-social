@@ -230,6 +230,52 @@ export function apply(ctx: Context): void {
     },
 
     {
+      name: 'social-join',
+      description: '关注一个话题，之后别人在里面的发言会出现在你的会话里',
+      hint: 'cardId 或其前缀',
+      run: async (arg) => {
+        if (!arg) return '用法：/social-join <cardId 或前缀>'
+        const resolved = resolveCardId(arg.trim())
+        if (!resolved.ok) return resolved.why
+        await social.join(resolved.id)
+        return `已关注话题 ${String(resolved.id).slice(0, 8)}。\n`
+          + '别人的发言默认**不会**进入你的会话流 —— 那要花 token 且 AI 会接话。\n'
+          + '想让它进来，在 cordis.yml 里把 social-curator 的 injectTopics 改成 true。'
+      },
+    },
+
+    {
+      name: 'social-leave',
+      description: '取消关注一个话题',
+      hint: 'cardId 或其前缀',
+      run: async (arg) => {
+        if (!arg) return '用法：/social-leave <cardId 或前缀>'
+        const resolved = resolveCardId(arg.trim())
+        if (!resolved.ok) return resolved.why
+        await social.leave(resolved.id)
+        return '已取消关注。'
+      },
+    },
+
+    {
+      name: 'social-say',
+      description: '在关注的话题里发言（所有关注者可见）',
+      hint: '<cardId前缀> <要说的话>',
+      run: async (arg) => {
+        const space = arg.indexOf(' ')
+        if (space <= 0) return '用法：/social-say <cardId前缀> <要说的话>'
+        const resolved = resolveCardId(arg.slice(0, space).trim())
+        if (!resolved.ok) return resolved.why
+        const text = arg.slice(space + 1).trim()
+        if (text.length === 0) return '说点什么吧。'
+
+        // 发言是不可撤回的公开动作，和发布卡片一样只能由用户触发（红线①）
+        await social.say(resolved.id, text)
+        return '已发送。你在这个话题里的代号对所有人稳定，换个话题就是另一个代号。'
+      },
+    },
+
+    {
       name: 'social-stats',
       description: '★ 转化率统计 —— 阶段 0 的生死线数字',
       run: async () => {

@@ -31,6 +31,7 @@ import {
   type OpinionCard,
   type RemoteCard,
   type SquareGroup,
+  type TopicMessage,
   type DecisionRecord,
 } from '@dsh-social/core'
 import { loadIdentity, type DeviceIdentity } from './identity.ts'
@@ -180,6 +181,55 @@ class SocialCloud extends SocialService {
         cards: parseCards(g['cards']),
       }]
     })
+  }
+
+  override async say(topicId: CardId, text: string): Promise<void> {
+    const id = await this.identify()
+    // cardId 一起签，否则一个签名能被挪到别的话题下
+    const payload = JSON.stringify({ cardId: String(topicId), text })
+    await this.request('POST', `/v1/cards/${encodeURIComponent(String(topicId))}/messages`, {
+      body: payload,
+      signed: id.sign(payload),
+      publicKey: id.publicKey,
+    })
+  }
+
+  override async messages(topicId: CardId, since: number): Promise<TopicMessage[]> {
+    const res = await this.request(
+      'GET',
+      `/v1/cards/${encodeURIComponent(String(topicId))}/messages?since=${since}`,
+      { allowStatus: [404] },
+    )
+    if (res.status === 404) return []
+    const json = await res.json() as { messages?: unknown }
+    if (!Array.isArray(json.messages)) return []
+    return json.messages.flatMap((raw): TopicMessage[] => {
+      const m = raw as Record<string, unknown>
+      if (typeof m['messageId'] !== 'string' || typeof m['text'] !== 'string') return []
+      return [{
+        messageId: m['messageId'],
+        alias: typeof m['alias'] === 'string' ? m['alias'] : '?',
+        text: m['text'],
+        createdAt: typeof m['createdAt'] === 'number' ? m['createdAt'] : 0,
+      }]
+    })
+  }
+
+
+  override async join(topicId: CardId): Promise<void> {
+    await this.decisions.mutate((store) => {
+      if (!store.topics.includes(String(topicId))) store.topics.push(String(topicId))
+    })
+  }
+
+  override async leave(topicId: CardId): Promise<void> {
+    await this.decisions.mutate((store) => {
+      store.topics = store.topics.filter(t => t !== String(topicId))
+    })
+  }
+
+  override async joined(): Promise<readonly CardId[]> {
+    return (await this.decisions.read()).topics.map(asCardId)
   }
 
   /** 只落本地。理由见文件头。 */

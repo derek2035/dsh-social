@@ -71,6 +71,20 @@ export interface RemoteCard {
   readonly reasoning?: string
 }
 
+/**
+ * 话题内的一条发言。
+ *
+ * `alias` 是**每话题化名**，不是身份：同一个人在这个话题里始终是这个名字，
+ * 换个话题就是另一个名字。这样对话读得通，而跨话题串不起来。
+ * 服务端永远不返回公钥。
+ */
+export interface TopicMessage {
+  readonly messageId: string
+  readonly alias: string
+  readonly text: string
+  readonly createdAt: number
+}
+
 /** 广场里的一个话题分组。 */
 export interface SquareGroup {
   /** 话题名。用簇内最新那条的正文——不做关键词抽取，64 维哈希词袋抽出来的多半是噪音。 */

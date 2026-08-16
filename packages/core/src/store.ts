@@ -27,9 +27,11 @@ export interface Store {
   version: 1
   cards: StoredCard[]
   decisions: DecisionRecord[]
+  /** 我关注的话题 id（= 卡片 id）。纯本地状态，不上传。 */
+  topics: string[]
 }
 
-const EMPTY: Store = { version: 1, cards: [], decisions: [] }
+const EMPTY: Store = { version: 1, cards: [], decisions: [], topics: [] }
 
 export class JsonStore {
   /** 串行化写入，避免并发 publish 互相覆盖。 */
@@ -62,6 +64,7 @@ export class JsonStore {
         version: 1,
         cards: Array.isArray(parsed.cards) ? parsed.cards : [],
         decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
+        topics: Array.isArray(parsed.topics) ? parsed.topics : [],
       }
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
