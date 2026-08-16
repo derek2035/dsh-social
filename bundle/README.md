@@ -1,5 +1,8 @@
 # dsh-social
 
+[![npm](https://img.shields.io/npm/v/dsh-social-plugin)](https://www.npmjs.com/package/dsh-social-plugin)
+[![源码](https://img.shields.io/badge/GitHub-dsh--social-181717?logo=github)](https://github.com/derek2035/dsh-social)
+
 DeepSeek Harness 的社交插件：**AI 代笔、默认匿名、逐条过审**的观点交换网络。
 
 你和 AI 聊出一个观点，插件把它写成一张卡片**提议**发布。你看一眼，

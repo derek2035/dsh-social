@@ -1,6 +1,6 @@
 {
   "name": "dsh-social-plugin",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "DeepSeek Harness 社交插件：AI 代笔、默认匿名、逐条过审的观点交换网络",
   "type": "module",
   "exports": {
@@ -56,5 +56,14 @@
   ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/derek2035/dsh-social.git",
+    "directory": "bundle"
+  },
+  "homepage": "https://github.com/derek2035/dsh-social#readme",
+  "bugs": {
+    "url": "https://github.com/derek2035/dsh-social/issues"
   }
 }

@@ -26,5 +26,9 @@
     "@deepseek-ai/dsh-host-webserver": "link:../deepseek-harness/packages/host/webserver",
     "@deepseek-ai/dsh-llm": "link:../deepseek-harness/packages/llm/llm",
     "@deepseek-ai/dsh-session": "link:../deepseek-harness/packages/core/session"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/derek2035/dsh-social.git"
   }
 }
