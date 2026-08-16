@@ -9,6 +9,7 @@
  * 它应该变成按话题推荐，而不是「所有人的所有卡片」。
  */
 import { useCallback, useEffect, useState } from 'react'
+import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 
 interface SquareCard {
   /** 注意是 id 不是 cardId —— 宿主返回的是 core 的 RemoteCard 形状。 */
@@ -27,7 +28,13 @@ type Status =
   | { readonly kind: 'ready', readonly cards: readonly SquareCard[] }
   | { readonly kind: 'error', readonly message: string }
 
-export function SquarePanel(): React.ReactElement {
+/**
+ * 槽的标准 props。`inputActions` 由框架的 session kit 提供
+ * （见 ui-conversation 的 SessionStandardProps），会话作用域的槽都拿得到。
+ */
+export type SquarePanelProps = PropsRuntime<'conversation.session.header.actions'>
+
+export function SquarePanel({ inputActions }: SquarePanelProps): React.ReactElement {
   const [open, setOpen] = useState(false)
   const [status, setStatus] = useState<Status>({ kind: 'loading' })
 
@@ -48,6 +55,22 @@ export function SquarePanel(): React.ReactElement {
 
   useEffect(() => { if (open) void load() }, [open, load])
 
+  /**
+   * 点卡片 → 把它写进输入框，然后关掉面板。
+   *
+   * 为什么是「带进对话」而不是「回复」：阶段 1 没有 thread，服务端也没有
+   * 回复接口（那是设计文档里的阶段 2）。与其做一个假的回复按钮，
+   * 不如接上这个宿主本来就擅长的动作 —— 你看到一个观点，
+   * 想跟自己的 AI 聊聊它。
+   */
+  const bring = useCallback((card: SquareCard) => {
+    const quoted = card.reasoning === undefined
+      ? `「${card.claim}」`
+      : `「${card.claim}」\n（${card.reasoning}）`
+    inputActions.setDraft(`我在话题广场看到这个观点：\n\n${quoted}\n\n`)
+    setOpen(false)
+  }, [inputActions])
+
   return (
     <div style={{ position: 'relative' }}>
       <button
@@ -60,6 +83,9 @@ export function SquarePanel(): React.ReactElement {
       </button>
       {open && (
         <div style={panelStyle}>
+          {/* hover 用 CSS 写。内联样式表达不了伪类，而这个包是外部插件，
+              用不了宿主的 CSS module 管线，所以就地注入一条规则。 */}
+          <style>{HOVER_CSS}</style>
           <div style={headerStyle}>
             <span>话题广场</span>
             <button type="button" onClick={() => { void load() }} style={linkStyle}>刷新</button>
@@ -79,19 +105,31 @@ export function SquarePanel(): React.ReactElement {
               </div>
             </div>
           )}
+          {status.kind === 'ready' && status.cards.length > 0 && (
+            <div style={subHintStyle}>点一张卡片，把它带进输入框</div>
+          )}
           {status.kind === 'ready' && status.cards.map(card => (
-            <div key={card.id} style={cardStyle}>
+            <button
+              key={card.id}
+              type="button"
+              className={CARD_CLASS}
+              onClick={() => { bring(card) }}
+              style={cardStyle}
+            >
               <div style={claimStyle}>{card.claim}</div>
               {card.reasoning !== undefined && (
                 <div style={reasoningStyle}>{card.reasoning}</div>
               )}
-            </div>
+            </button>
           ))}
         </div>
       )}
     </div>
   )
 }
+
+const CARD_CLASS = 'dsh-social-square-card'
+const HOVER_CSS = `.${CARD_CLASS}:hover { background: var(--dsw-alias-fill-l2) !important; }`
 
 // 内联样式而不是 CSS module：CSS module 需要宿主的构建管线参与，
 // 而这个包是外部插件，产物是自己 esbuild 出来的单文件。
@@ -153,8 +191,17 @@ const linkStyle: React.CSSProperties = {
 }
 
 const cardStyle: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  textAlign: 'left',
+  border: 0,
   borderTop: '1px solid var(--dsw-alias-border-l2)',
-  padding: '8px 4px',
+  borderRadius: 6,
+  background: 'transparent',
+  padding: '8px 6px',
+  cursor: 'pointer',
+  font: 'inherit',
+  transition: 'background 120ms ease',
 }
 
 const claimStyle: React.CSSProperties = {
