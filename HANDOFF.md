@@ -474,25 +474,26 @@ DSH_HOME=/tmp/smoke node --experimental-strip-types \
 
 它会用一把全新密钥模拟新用户，走完 发布 → 广场 → 撤回三态。
 
-### 发布到 npm
+### 已发布到 npm
 
-包已经是可发布形态（`bundle/`），`npm pack` 验过内容。**最后一步没做**：
-本机 npm 未登录，而且 `npm publish` 不可逆（npm 的 unpublish 有严格限制）。
+`dsh-social-plugin@0.0.1`，2026-08-16，maintainer `derekcui`。
+https://www.npmjs.com/package/dsh-social-plugin
 
-```bash
-cd bundle
-npm login
-npm publish --access public
-```
-
-名字 `dsh-social-plugin` 在 npm 上还没被占。发布后别人：
+别人装它就一条命令：
 
 ```bash
-dsh plugin --profile web add -w dsh-social-plugin
-dsh web
+npx @deepseek-ai/dsh plugin --profile web add -w dsh-social-plugin
+npx @deepseek-ai/dsh web
 ```
 
-发完记得在 GitHub 仓库打 `dsh-plugin` topic —— 那是 DSH 生态的发现方式。
+**验证过**：全新 `DSH_HOME` 从 npm 装 → 启动 → 插件加载 → 连 `social.c01.link`
+→ 广场返回卡片 → client bundle 200。零配置。
+
+⚠️ **发版时 2FA 是 passkey 不是 TOTP**。`npm publish` 必须在**真终端**里跑，
+它会打开浏览器做 passkey 验证。放后台跑没有终端也弹不出浏览器，
+npm 会退回去要 OTP 然后报 `EOTP` —— 那不是密码错，是环境不对。
+
+待办：在 GitHub 仓库打 `dsh-plugin` topic，那是 DSH 生态的发现方式。
 
 ### 已验证：全新用户能直接用
 
