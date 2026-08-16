@@ -16,7 +16,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
-import { cosine } from '@dsh-social/core'
+import { cluster, cosine, distinctPublishers } from '@dsh-social/core'
 import { ServerStore, type ServerCard } from './store.ts'
 import { verifyRequest, CLOCK_SKEW_MS } from './verify.ts'
 import { normalizeIncoming } from './vector.ts'
@@ -221,18 +221,27 @@ export function createSocialServer(config: ServerConfig = {}) {
 
     const limit = Math.min(Number(url.searchParams.get('limit') ?? 50) || 50, 200)
     const all = store.all()
-    const cards = [...all]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, limit)
-      .map(c => ({
-        cardId: c.cardId,
-        claim: c.claim,
-        ...(c.reasoning === undefined ? {} : { reasoning: c.reasoning }),
-        createdAt: c.createdAt,
-        // publisher 仍然不返回 —— 广场绕过的是 k-匿名，不是匿名本身。
-        // 「谁发的」在任何模式下都不出服务端。
-      }))
-    send(res, 200, { cards, total: all.length })
+    const recent = [...all].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit)
+
+    // 按话题分组。时间流水账看不出「有多少人在想同一件事」，
+    // 而那是这个产品唯一的价值主张。
+    const groups = cluster(recent).map(c => ({
+      // 用簇内最新那条的正文当话题名 —— 不做关键词抽取：
+      // 64 维哈希词袋抽出来的「关键词」多半是噪音，不如直接给人看原句
+      title: c.cards[0]?.claim ?? '',
+      /** 有多少个**不同的人**在这个话题下发过。和 k-匿名同口径。 */
+      voices: distinctPublishers(c),
+      cards: c.cards.map(x => ({
+        cardId: x.cardId,
+        claim: x.claim,
+        ...(x.reasoning === undefined ? {} : { reasoning: x.reasoning }),
+        createdAt: x.createdAt,
+        // publisher 和 topicVector 都不返回 —— 广场绕过的是 k-匿名，
+        // 不是匿名本身。「谁发的」和「话题指纹」在任何模式下都不出服务端。
+      })),
+    }))
+
+    send(res, 200, { groups, total: all.length })
   }
 
   /** 读限流按来源 IP —— 读操作不验签，没有公钥可依。 */

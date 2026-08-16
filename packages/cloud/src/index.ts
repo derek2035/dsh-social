@@ -30,6 +30,7 @@ import {
   type CardId,
   type OpinionCard,
   type RemoteCard,
+  type SquareGroup,
   type DecisionRecord,
 } from '@dsh-social/core'
 import { loadIdentity, type DeviceIdentity } from './identity.ts'
@@ -158,35 +159,25 @@ class SocialCloud extends SocialService {
       body: JSON.stringify({ topicVector: vector, limit }),
     })
     const json = await res.json() as { cards?: unknown }
-    if (!Array.isArray(json.cards)) return []
-
-    return json.cards.flatMap((raw): RemoteCard[] => {
-      const c = raw as Record<string, unknown>
-      if (typeof c['cardId'] !== 'string' || typeof c['claim'] !== 'string') return []
-      return [{
-        id: asCardId(c['cardId']),
-        claim: c['claim'],
-        ...(typeof c['reasoning'] === 'string' ? { reasoning: c['reasoning'] } : {}),
-      }]
-    })
+    return parseCards(json.cards)
   }
 
-  override async square(limit: number): Promise<RemoteCard[]> {
+  override async square(limit: number): Promise<SquareGroup[]> {
     const res = await this.request('GET', `/v1/cards/square?limit=${limit}`, {
       allowStatus: [404],
     })
     // 404 = 服务端没开广场（默认姿态）。不是错误，是配置。
     if (res.status === 404) return []
 
-    const json = await res.json() as { cards?: unknown }
-    if (!Array.isArray(json.cards)) return []
-    return json.cards.flatMap((raw): RemoteCard[] => {
-      const c = raw as Record<string, unknown>
-      if (typeof c['cardId'] !== 'string' || typeof c['claim'] !== 'string') return []
+    const json = await res.json() as { groups?: unknown }
+    if (!Array.isArray(json.groups)) return []
+    return json.groups.flatMap((raw): SquareGroup[] => {
+      const g = raw as Record<string, unknown>
+      if (!Array.isArray(g['cards'])) return []
       return [{
-        id: asCardId(c['cardId']),
-        claim: c['claim'],
-        ...(typeof c['reasoning'] === 'string' ? { reasoning: c['reasoning'] } : {}),
+        title: typeof g['title'] === 'string' ? g['title'] : '',
+        voices: typeof g['voices'] === 'number' ? g['voices'] : 1,
+        cards: parseCards(g['cards']),
       }]
     })
   }
@@ -251,6 +242,20 @@ class SocialCloud extends SocialService {
       clearTimeout(timer)
     }
   }
+}
+
+/** 服务端返回的卡片数组 → RemoteCard[]。脏数据跳过而不是整批丢掉。 */
+function parseCards(raw: unknown): RemoteCard[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item): RemoteCard[] => {
+    const c = item as Record<string, unknown>
+    if (typeof c['cardId'] !== 'string' || typeof c['claim'] !== 'string') return []
+    return [{
+      id: asCardId(c['cardId']),
+      claim: c['claim'],
+      ...(typeof c['reasoning'] === 'string' ? { reasoning: c['reasoning'] } : {}),
+    }]
+  })
 }
 
 export const name = 'social-cloud'

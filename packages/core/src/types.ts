@@ -71,6 +71,15 @@ export interface RemoteCard {
   readonly reasoning?: string
 }
 
+/** 广场里的一个话题分组。 */
+export interface SquareGroup {
+  /** 话题名。用簇内最新那条的正文——不做关键词抽取，64 维哈希词袋抽出来的多半是噪音。 */
+  readonly title: string
+  /** 有多少个**不同的人**在这个话题下发过。和 k-匿名同口径：一个人发五张不算五个人。 */
+  readonly voices: number
+  readonly cards: readonly RemoteCard[]
+}
+
 // ───────────────────────────────────────────────────────────────
 // 用户决定
 // ───────────────────────────────────────────────────────────────

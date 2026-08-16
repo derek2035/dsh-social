@@ -17,14 +17,23 @@ interface SquareCard {
   readonly reasoning?: string
 }
 
+interface SquareGroup {
+  readonly title: string
+  /** 有多少个**不同的人**在这个话题下发过。一个人发五张不算五个人。 */
+  readonly voices: number
+  readonly cards: readonly SquareCard[]
+}
+
 interface SquareResponse {
-  readonly cards?: readonly SquareCard[]
+  readonly groups?: readonly SquareGroup[]
+  /** 我发过的 cardId。由本地决定记录推导，服务端没有「列出我的卡片」接口。 */
+  readonly mine?: readonly string[]
   readonly error?: string
 }
 
 type Status =
   | { readonly kind: 'loading' }
-  | { readonly kind: 'ready', readonly cards: readonly SquareCard[] }
+  | { readonly kind: 'ready', readonly groups: readonly SquareGroup[], readonly mine: ReadonlySet<string> }
   | { readonly kind: 'error', readonly message: string }
 
 export interface SquareViewProps {
@@ -35,6 +44,7 @@ export interface SquareViewProps {
 export function SquareView({ inputActions }: SquareViewProps): React.ReactElement {
   const [status, setStatus] = useState<Status>({ kind: 'loading' })
   const [query, setQuery] = useState('')
+  const [notice, setNotice] = useState('')
 
   const load = useCallback(async () => {
     setStatus({ kind: 'loading' })
@@ -45,7 +55,11 @@ export function SquareView({ inputActions }: SquareViewProps): React.ReactElemen
         setStatus({ kind: 'error', message: json.error })
         return
       }
-      setStatus({ kind: 'ready', cards: json.cards ?? [] })
+      setStatus({
+        kind: 'ready',
+        groups: json.groups ?? [],
+        mine: new Set(json.mine ?? []),
+      })
     } catch (err) {
       setStatus({ kind: 'error', message: (err as Error).message })
     }
@@ -56,10 +70,20 @@ export function SquareView({ inputActions }: SquareViewProps): React.ReactElemen
   const visible = useMemo(() => {
     if (status.kind !== 'ready') return []
     const q = query.trim().toLowerCase()
-    if (q === '') return status.cards
-    return status.cards.filter(c =>
-      c.claim.toLowerCase().includes(q) || (c.reasoning ?? '').toLowerCase().includes(q))
+    if (q === '') return status.groups
+    // 过滤保留分组结构：整组滤空就不显示，而不是把命中的卡片摊平成一列
+    return status.groups
+      .map(g => ({
+        ...g,
+        cards: g.cards.filter(c =>
+          c.claim.toLowerCase().includes(q) || (c.reasoning ?? '').toLowerCase().includes(q)),
+      }))
+      .filter(g => g.cards.length > 0)
   }, [status, query])
+
+  const totalCards = status.kind === 'ready'
+    ? status.groups.reduce((n, g) => n + g.cards.length, 0)
+    : 0
 
   /**
    * 把卡片写进输入框。
@@ -68,6 +92,26 @@ export function SquareView({ inputActions }: SquareViewProps): React.ReactElemen
    * 与其做一个假的回复按钮，不如接上宿主本来就擅长的动作 ——
    * 你看到一个观点，想跟自己的 AI 聊它。
    */
+  /** 撤回自己发的卡片。三态要分开显示，不能都说成「已撤回」。 */
+  const retract = useCallback(async (card: SquareCard) => {
+    try {
+      const res = await fetch('/social-api/retract', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cardId: card.id }),
+      })
+      const json = await res.json() as { removed?: boolean, error?: string }
+      if (json.error !== undefined) {
+        setNotice(`撤回失败：${json.error}`)
+        return
+      }
+      setNotice(json.removed === true ? '已撤回' : '服务端上没有这张卡片，什么都没删')
+      await load()
+    } catch (err) {
+      setNotice(`撤回失败：${(err as Error).message}`)
+    }
+  }, [load])
+
   const bring = useCallback((card: SquareCard) => {
     const quoted = card.reasoning === undefined
       ? `「${card.claim}」`
@@ -84,7 +128,7 @@ export function SquareView({ inputActions }: SquareViewProps): React.ReactElemen
           <div style={titleStyle}>话题广场</div>
           <div style={subtitleStyle}>
             {status.kind === 'ready'
-              ? `${status.cards.length} 条公开观点 · 点任意一条把它带进对话`
+              ? `${status.groups.length} 个话题 · ${totalCards} 条观点 · 点任意一条把它带进对话`
               : ' '}
           </div>
         </div>
@@ -110,7 +154,9 @@ export function SquareView({ inputActions }: SquareViewProps): React.ReactElemen
           </div>
         )}
 
-        {status.kind === 'ready' && status.cards.length === 0 && (
+        {notice !== '' && <div style={noticeStyle}>{notice}</div>}
+
+        {status.kind === 'ready' && status.groups.length === 0 && (
           <div style={hintStyle}>
             <div style={hintTitleStyle}>还没有人发过观点</div>
             <div style={subHintStyle}>
@@ -119,24 +165,45 @@ export function SquareView({ inputActions }: SquareViewProps): React.ReactElemen
           </div>
         )}
 
-        {status.kind === 'ready' && status.cards.length > 0 && visible.length === 0 && (
+        {status.kind === 'ready' && status.groups.length > 0 && visible.length === 0 && (
           <div style={hintStyle}>没有匹配「{query}」的观点</div>
         )}
 
-        {visible.map(card => (
-          <button
-            key={card.id}
-            type="button"
-            className="dsh-social-card"
-            onClick={() => { bring(card) }}
-            style={cardStyle}
-          >
-            <div style={claimStyle}>{card.claim}</div>
-            {card.reasoning !== undefined && (
-              <div style={reasoningStyle}>{card.reasoning}</div>
-            )}
-            <div className="dsh-social-cta" style={ctaStyle}>带进对话 →</div>
-          </button>
+        {status.kind === 'ready' && visible.map((group, gi) => (
+          <div key={`${group.title}-${gi}`} style={groupStyle}>
+            <div style={groupHeadStyle}>
+              <span style={groupTitleStyle}>{group.title}</span>
+              {group.voices > 1 && (
+                <span style={voicesStyle}>{group.voices} 个人在想同一件事</span>
+              )}
+            </div>
+            {group.cards.map(card => {
+              const isMine = status.mine.has(card.id)
+              return (
+                <div key={card.id} className="dsh-social-card" style={cardStyle}>
+                  <button type="button" onClick={() => { bring(card) }} style={cardBodyStyle}>
+                    <div style={claimStyle}>{card.claim}</div>
+                    {card.reasoning !== undefined && (
+                      <div style={reasoningStyle}>{card.reasoning}</div>
+                    )}
+                  </button>
+                  <div style={cardFootStyle}>
+                    <span className="dsh-social-cta" style={ctaStyle}>点正文带进对话 →</span>
+                    {isMine && (
+                      <button
+                        type="button"
+                        onClick={() => { void retract(card) }}
+                        style={retractStyle}
+                        title="真删，不是隐藏。删除后所有展示过它的地方同时失效"
+                      >
+                        我发的 · 撤回
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         ))}
       </div>
     </div>
@@ -220,16 +287,74 @@ const listStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
+const groupStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  marginBottom: 20,
+}
+
+const groupHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 10,
+  padding: '0 2px 2px',
+}
+
+const groupTitleStyle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 600,
+  color: 'var(--dsw-alias-label-secondary)',
+}
+
+const voicesStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--dsw-alias-label-tertiary)',
+}
+
 const cardStyle: React.CSSProperties = {
-  display: 'block',
-  width: '100%',
-  textAlign: 'left',
   padding: '14px 16px',
   background: 'transparent',
   border: '1px solid var(--dsw-alias-border-l2)',
   borderRadius: 12,
+}
+
+const cardBodyStyle: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  textAlign: 'left',
+  padding: 0,
+  border: 0,
+  background: 'transparent',
   cursor: 'pointer',
   font: 'inherit',
+}
+
+const cardFootStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 12,
+  marginTop: 10,
+}
+
+const retractStyle: React.CSSProperties = {
+  fontSize: 11,
+  padding: '3px 8px',
+  color: 'var(--dsw-alias-label-tertiary)',
+  background: 'transparent',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: 6,
+  cursor: 'pointer',
+}
+
+const noticeStyle: React.CSSProperties = {
+  fontSize: 12,
+  padding: '8px 12px',
+  marginBottom: 8,
+  color: 'var(--dsw-alias-label-secondary)',
+  background: 'var(--dsw-alias-fill-l2)',
+  borderRadius: 8,
 }
 
 const claimStyle: React.CSSProperties = {

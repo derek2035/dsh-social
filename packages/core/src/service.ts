@@ -6,7 +6,7 @@
  */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { CardId, OpinionCard, RemoteCard, DecisionRecord } from './types.ts'
+import type { CardId, OpinionCard, RemoteCard, SquareGroup, DecisionRecord } from './types.ts'
 import { assertApproved } from './guard.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -59,7 +59,7 @@ export abstract class SocialService extends Service {
    *
    * 对外开放前必须在服务端关掉。见 server/src/index.ts 的 devPublicSquare。
    */
-  abstract square(limit: number): Promise<RemoteCard[]>
+  abstract square(limit: number): Promise<SquareGroup[]>
 
   /** 记录用户对草稿的决定。转化率指标的数据源。 */
   abstract recordDecision(record: DecisionRecord): Promise<void>

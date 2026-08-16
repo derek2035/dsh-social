@@ -50,6 +50,24 @@ export function apply(ctx: Context): void {
   const social = ctx.social
 
   /**
+   * 查有没有人在想同一件事，拼成一段给用户看的文字。
+   *
+   * 失败一律吞掉：这是发布成功之后的锦上添花，
+   * 网络抖一下不该让用户以为发布失败了。
+   */
+  async function relatedTo(card: OpinionCard): Promise<string> {
+    try {
+      const hits = (await social.relevant(card.topicVector, 3))
+        .filter(c => String(c.id) !== String(card.id))
+      if (hits.length === 0) return ''
+      const lines = hits.map(c => `  · ${c.claim}`).join('\n')
+      return `\n\n有 ${hits.length} 个人在想同一件事：\n${lines}`
+    } catch {
+      return ''
+    }
+  }
+
+  /**
    * 待处理草稿。
    *
    * ⚠️ 原来这里是从 `(ctx as any).__socialPendingDrafts` 读 curator 挂上去的 Map。
@@ -159,7 +177,13 @@ export function apply(ctx: Context): void {
         }
         publishedIds.add(String(id))
         await record(draft, 'published', id)
-        return `已发布。撤回：/social-retract ${String(id).slice(0, 8)}`
+
+        // ★ 发布之后才查相关观点，且用的是**刚公开出去的那张卡**的向量。
+        //   这个时机是隐私决定，不是性能决定：拿用户当前正在聊的内容去查，
+        //   等于持续上传他从没同意公开的话题指纹。
+        //   详见 packages/cloud/src/index.ts 里 relevant() 上面那段注释。
+        const related = await relatedTo(card)
+        return `已发布。撤回：/social-retract ${String(id).slice(0, 8)}${related}`
       },
     },
 

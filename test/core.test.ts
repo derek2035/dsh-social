@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import { assessRisk, buildSummaryPrompt, parseSummary } from '../packages/core/src/redact.ts'
 import { topicVector, cosine, tokenize } from '../packages/core/src/topic.ts'
+import { cluster, distinctPublishers } from '../packages/core/src/cluster.ts'
 import { judge, DEFAULT_HEURISTICS } from '../packages/curator/src/heuristics.ts'
 import type { TurnStats } from '../packages/curator/src/heuristics.ts'
 
@@ -166,3 +167,32 @@ test('judge: 无判断性表述被排除（够长但只是叙事）', () => {
   assert.equal(v.worth, false)
   assert.ok(v.reason.includes('判断性'), `实际原因：${v.reason}`)
 })
+
+// ── 话题聚类 ──────────────────────────────────────────────────
+
+test('cluster: 高度重合的卡片归到一组', () => {
+  const a = { topicVector: topicVector('远程办公对新人不利'), publisher: 'p1' }
+  const b = { topicVector: topicVector('远程办公对新人不利，对资深的人有利'), publisher: 'p2' }
+  const groups = cluster([a, b])
+  assert.equal(groups.length, 1, `实际相似度 ${cosine(a.topicVector, b.topicVector).toFixed(3)}`)
+})
+
+test('cluster: 无关话题不会被揉到一起', () => {
+  const a = { topicVector: topicVector('创业最大的成本是时间窗口'), publisher: 'p1' }
+  const b = { topicVector: topicVector('把勤奋当成品质来夸是有害的'), publisher: 'p2' }
+  assert.equal(cluster([a, b]).length, 2)
+})
+
+test('cluster: voices 数的是人不是卡片', () => {
+  // 同一个人发两张几乎一样的卡，不该让这个话题显得有两个人在想
+  const one = { topicVector: topicVector('远程办公对新人不利'), publisher: 'same' }
+  const two = { topicVector: topicVector('远程办公对新人不利，对资深有利'), publisher: 'same' }
+  const groups = cluster([one, two])
+  assert.equal(groups.length, 1)
+  assert.equal(distinctPublishers(groups[0]!), 1)
+})
+
+test('cluster: 空输入安全', () => {
+  assert.deepEqual(cluster([]), [])
+})
+

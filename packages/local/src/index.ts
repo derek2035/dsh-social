@@ -19,10 +19,13 @@ import {
   JsonStore,
   SocialService,
   asCardId,
+  cluster,
   cosine,
+  distinctPublishers,
   type CardId,
   type OpinionCard,
   type RemoteCard,
+  type SquareGroup,
   type DecisionRecord,
 } from '@dsh-social/core'
 
@@ -127,17 +130,27 @@ class SocialLocal extends SocialService {
       }))
   }
 
-  /** 本地广场就是本机发过的全部卡片。 */
-  override async square(limit: number): Promise<RemoteCard[]> {
+  /**
+   * 本地广场就是本机发过的全部卡片，同样按话题分组。
+   *
+   * 本地只有你一个人，所以每个分组的 voices 都是 1 —— 那是**正确**的，
+   * 不是 bug。分组在这里的价值是把自己的想法按主题归拢。
+   */
+  override async square(limit: number): Promise<SquareGroup[]> {
     const store = await this.store.read()
-    return [...store.cards]
+    const recent = [...store.cards]
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit)
-      .map(c => ({
-        id: asCardId(c.id),
-        claim: c.claim,
-        ...(c.reasoning === undefined ? {} : { reasoning: c.reasoning }),
-      }))
+
+    return cluster(recent).map(c => ({
+      title: c.cards[0]?.claim ?? '',
+      voices: distinctPublishers(c),
+      cards: c.cards.map(x => ({
+        id: asCardId(x.id),
+        claim: x.claim,
+        ...(x.reasoning === undefined ? {} : { reasoning: x.reasoning }),
+      })),
+    }))
   }
 
   override async recordDecision(record: DecisionRecord): Promise<void> {
