@@ -60,6 +60,44 @@ async function client() {
   return ctx
 }
 
+/**
+ * 手工构造一个已签名的请求，用来测客户端不会犯但攻击者会犯的错。
+ * 签名的拼法必须和 identity.ts 一致：`${timestamp}.${body}`。
+ */
+function signedFetch(path: string, body: string, opts: {
+  method?: string
+  key?: { publicKey: string, privateKey: import('node:crypto').KeyObject }
+  claimedTimestamp?: string
+  signedTimestamp?: string
+} = {}) {
+  const key = opts.key ?? freshKey()
+  const signedAt = opts.signedTimestamp ?? String(Date.now())
+  const sent = opts.claimedTimestamp ?? signedAt
+  const signature = cryptoSign(
+    null,
+    Buffer.from(`${signedAt}.${body}`, 'utf8'),
+    key.privateKey,
+  ).toString('base64url')
+
+  return fetch(`${endpoint}${path}`, {
+    method: opts.method ?? 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-social-key': key.publicKey,
+      'x-social-signature': signature,
+      'x-social-timestamp': sent,
+    },
+    body,
+  })
+}
+
+function freshKey() {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const publicKey = (createPublicKey(privateKey)
+    .export({ format: 'der', type: 'spki' }) as Buffer).toString('base64url')
+  return { privateKey, publicKey }
+}
+
 const approved = (claim: string): OpinionCard => ({
   id: asCardId('00000000-0000-0000-0000-000000000001'),
   claim,
@@ -116,42 +154,34 @@ describe('端到端：客户端签名 ↔ 服务端验签', () => {
   })
 
   test('★ 冒名发布被拒：ephemeralId 必须等于验签公钥', async () => {
-    const { privateKey } = generateKeyPairSync('ed25519')
-    const publicKey = (createPublicKey(privateKey)
-      .export({ format: 'der', type: 'spki' }) as Buffer).toString('base64url')
-
+    const key = freshKey()
     // 签名是真的，但正文里声称的身份是别人的
-    const body = JSON.stringify({
+    const res = await signedFetch('/v1/cards', JSON.stringify({
       claim: '冒充别人发的',
       topicVector: topicVector('冒充'),
       ephemeralId: 'someone-elses-key',
-    })
-    const res = await fetch(`${endpoint}/v1/cards`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-social-key': publicKey,
-        'x-social-signature': cryptoSign(null, Buffer.from(body), privateKey).toString('base64url'),
-      },
-      body,
-    })
+    }), { key })
     assert.equal(res.status, 400)
   })
 
   test('★ 改了正文的请求验签失败', async () => {
-    const { privateKey } = generateKeyPairSync('ed25519')
-    const publicKey = (createPublicKey(privateKey)
-      .export({ format: 'der', type: 'spki' }) as Buffer).toString('base64url')
-
-    const signed = JSON.stringify({ claim: '原文', topicVector: [1], ephemeralId: publicKey })
-    const tampered = JSON.stringify({ claim: '被改过', topicVector: [1], ephemeralId: publicKey })
-
+    const key = freshKey()
+    const timestamp = String(Date.now())
+    const signed = JSON.stringify({
+      claim: '原文', topicVector: topicVector('原文'), ephemeralId: key.publicKey,
+    })
+    const tampered = JSON.stringify({
+      claim: '被改过', topicVector: topicVector('原文'), ephemeralId: key.publicKey,
+    })
     const res = await fetch(`${endpoint}/v1/cards`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-social-key': publicKey,
-        'x-social-signature': cryptoSign(null, Buffer.from(signed), privateKey).toString('base64url'),
+        'x-social-key': key.publicKey,
+        'x-social-timestamp': timestamp,
+        'x-social-signature': cryptoSign(
+          null, Buffer.from(`${timestamp}.${signed}`), key.privateKey,
+        ).toString('base64url'),
       },
       body: tampered,
     })
@@ -200,5 +230,182 @@ describe('端到端：客户端签名 ↔ 服务端验签', () => {
 
     app.store.ban(card.publisher)
     await assert.rejects(() => ctx.social.publish(approved('封禁后还想发的内容')), /403/)
+  })
+
+  // ── 这轮补强的部分 ────────────────────────────────────────────
+
+  test('★ 放大模长的查询向量不能绕过相似度阈值', async () => {
+    // 用一个独立的服务端，免得被其它用例的卡片干扰
+    const own = createSocialServer({ kAnonymityThreshold: 1, similarityFloor: 0.25 })
+    const port = await own.listen(0)
+    try {
+      const dir = await mkdtemp(join(tmpdir(), 'dsh-social-norm-'))
+      const ctx = new Context()
+      await ctx.plugin(MemoryCredentials)
+      await ctx.plugin(socialCloud, {
+        endpoint: `http://127.0.0.1:${port}`,
+        decisionStorePath: join(dir, 'd.json'),
+      })
+      await ctx.social.publish(approved('勤奋崇拜是有害的'))
+
+      // 这两段文本的点积约 0.126，低于 0.25 的阈值 —— 正常查询匹配不到。
+      // core 的 cosine() 其实是点积（省掉了除以模长），所以把查询向量整体
+      // 放大 1000 倍，点积就变成约 126，轻松越过阈值。
+      // 服务端不重新归一化的话，攻击者靠放大模长就能把任意弱相关的卡片全捞出来。
+      const probe = topicVector('创业和打工的权衡')
+      const amplified = probe.map(n => n * 1000)
+
+      const query = async (vec: number[]) => {
+        const res = await fetch(`http://127.0.0.1:${port}/v1/cards/relevant`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ topicVector: vec, limit: 50 }),
+        })
+        return (await res.json() as { cards: unknown[] }).cards
+      }
+
+      assert.equal((await query(probe)).length, 0, '正常查询本来就匹配不到')
+      assert.equal(
+        (await query(amplified)).length,
+        0,
+        '放大 1000 倍后仍然匹配不到 —— 说明服务端重新归一化了',
+      )
+    } finally {
+      await own.close()
+    }
+  })
+
+  test('维度不对的向量被拒', async () => {
+    const res = await fetch(`${endpoint}/v1/cards/relevant`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ topicVector: [1, 2, 3], limit: 10 }),
+    })
+    assert.equal(res.status, 400)
+  })
+
+  test('NaN / Infinity 在入口被挡下', async () => {
+    for (const bad of [null, 'x']) {
+      const vec = new Array(64).fill(0)
+      vec[0] = bad
+      const res = await fetch(`${endpoint}/v1/cards/relevant`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ topicVector: vec, limit: 10 }),
+      })
+      assert.equal(res.status, 400, `${String(bad)} 应该被拒`)
+    }
+  })
+
+  test('★ 重放同一个签名被拒', async () => {
+    const key = freshKey()
+    const body = JSON.stringify({
+      claim: '这条会被重放一次',
+      topicVector: topicVector('这条会被重放一次'),
+      ephemeralId: key.publicKey,
+    })
+    const timestamp = String(Date.now())
+    const signature = cryptoSign(
+      null, Buffer.from(`${timestamp}.${body}`), key.privateKey,
+    ).toString('base64url')
+    const headers = {
+      'content-type': 'application/json',
+      'x-social-key': key.publicKey,
+      'x-social-signature': signature,
+      'x-social-timestamp': timestamp,
+    }
+
+    const first = await fetch(`${endpoint}/v1/cards`, { method: 'POST', headers, body })
+    assert.equal(first.status, 200)
+
+    const replay = await fetch(`${endpoint}/v1/cards`, { method: 'POST', headers, body })
+    assert.equal(replay.status, 409, '一模一样的请求第二次必须被拒')
+  })
+
+  test('★ 时间窗外的请求被拒（即使签名有效）', async () => {
+    const old = String(Date.now() - 10 * 60 * 1000)
+    const body = JSON.stringify({ claim: '很久以前签的', topicVector: topicVector('旧'), ephemeralId: 'x' })
+    const res = await signedFetch('/v1/cards', body, { signedTimestamp: old })
+    assert.equal(res.status, 401)
+  })
+
+  test('★ 改时间戳给旧请求续期会验签失败', async () => {
+    const body = JSON.stringify({ claim: '续期尝试', topicVector: topicVector('续期'), ephemeralId: 'x' })
+    // 签名覆盖的是旧时间戳，发出去的是新的 —— 时间戳参与签名就是为了挡这个
+    const res = await signedFetch('/v1/cards', body, {
+      signedTimestamp: String(Date.now() - 10 * 60 * 1000),
+      claimedTimestamp: String(Date.now()),
+    })
+    assert.equal(res.status, 401)
+  })
+
+  test('超长 claim 被拒', async () => {
+    const key = freshKey()
+    const body = JSON.stringify({
+      claim: 'x'.repeat(501),
+      topicVector: topicVector('长'),
+      ephemeralId: key.publicKey,
+    })
+    assert.equal((await signedFetch('/v1/cards', body, { key })).status, 400)
+  })
+
+  test('★ 写入限流：突发额度用完后返回 429', async () => {
+    const limited = createSocialServer({ kAnonymityThreshold: 1, writeBurst: 3, writePerSec: 0 })
+    const port = await limited.listen(0)
+    try {
+      const key = freshKey()
+      const statuses: number[] = []
+      for (let i = 0; i < 5; i++) {
+        const body = JSON.stringify({
+          claim: `第 ${i} 条`,
+          topicVector: topicVector(`第 ${i} 条`),
+          ephemeralId: key.publicKey,
+        })
+        const timestamp = String(Date.now() + i)
+        const res = await fetch(`http://127.0.0.1:${port}/v1/cards`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-social-key': key.publicKey,
+            'x-social-timestamp': timestamp,
+            'x-social-signature': cryptoSign(
+              null, Buffer.from(`${timestamp}.${body}`), key.privateKey,
+            ).toString('base64url'),
+          },
+          body,
+        })
+        statuses.push(res.status)
+      }
+      assert.deepEqual(statuses, [200, 200, 200, 429, 429], `实际：${statuses.join(',')}`)
+    } finally {
+      await limited.close()
+    }
+  })
+
+  test('★ 持久化：重启后卡片还在', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-social-db-'))
+    const dbPath = join(dir, 'social.db')
+
+    const first = createSocialServer({ kAnonymityThreshold: 1, dbPath })
+    const p1 = await first.listen(0)
+    const ctx = new Context()
+    await ctx.plugin(MemoryCredentials)
+    await ctx.plugin(socialCloud, {
+      endpoint: `http://127.0.0.1:${p1}`,
+      decisionStorePath: join(dir, 'd.json'),
+    })
+    const id = await ctx.social.publish(approved('重启之后这条应该还在'))
+    await first.close()
+
+    // 同一个文件重新打开
+    const second = createSocialServer({ kAnonymityThreshold: 1, dbPath })
+    await second.listen(0)
+    try {
+      const card = second.store.get(String(id))
+      assert.ok(card, '重启后卡片必须还在')
+      assert.equal(card.claim, '重启之后这条应该还在')
+    } finally {
+      await second.close()
+    }
   })
 })

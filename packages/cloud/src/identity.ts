@@ -43,8 +43,13 @@ const KEY_REF = credentialRef('DSH_SOCIAL_DEVICE_KEY')
 export interface DeviceIdentity {
   /** base64url 的原始公钥，当作服务端可见的身份。 */
   readonly publicKey: string
-  /** 对任意字节串签名，返回 base64url。 */
-  sign(payload: string): string
+  /**
+   * 对「时间戳 + 正文」签名，返回签名和用掉的时间戳。
+   *
+   * 时间戳必须一起签，否则攻击者改掉它就能把一个旧请求「续期」重放。
+   * 服务端拿同样的拼法验签。
+   */
+  sign(payload: string): { readonly signature: string, readonly timestamp: string }
 }
 
 /**
@@ -70,9 +75,16 @@ export async function loadIdentity(ctx: Context): Promise<DeviceIdentity> {
 
   return {
     publicKey,
-    sign: (payload: string) =>
+    sign: (payload: string) => {
+      const timestamp = String(Date.now())
       // Ed25519 的 sign 不接受 digest 算法，第一个参数必须是 null
-      cryptoSign(null, Buffer.from(payload, 'utf8'), privateKey).toString('base64url'),
+      const signature = cryptoSign(
+        null,
+        Buffer.from(`${timestamp}.${payload}`, 'utf8'),
+        privateKey,
+      ).toString('base64url')
+      return { signature, timestamp }
+    },
   }
 }
 

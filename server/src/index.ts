@@ -18,7 +18,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto'
 import { cosine } from '@dsh-social/core'
 import { ServerStore, type ServerCard } from './store.ts'
-import { verifyRequest } from './verify.ts'
+import { verifyRequest, CLOCK_SKEW_MS } from './verify.ts'
+import { normalizeIncoming } from './vector.ts'
+import { RateLimiter } from './ratelimit.ts'
 
 export interface ServerConfig {
   readonly port?: number
@@ -31,14 +33,32 @@ export interface ServerConfig {
    */
   readonly kAnonymityThreshold?: number
   readonly similarityFloor?: number
+  /** SQLite 文件路径。默认 ':memory:'（重启即失，测试用）。 */
+  readonly dbPath?: string
+  /** 每个公钥的写操作配额：桶容量 / 每秒补充数。 */
+  readonly writeBurst?: number
+  readonly writePerSec?: number
 }
+
+/** claim 和 reasoning 的长度上限。卡片是一句观点，不是文章。 */
+const MAX_CLAIM_CHARS = 500
+const MAX_REASONING_CHARS = 1000
 
 const MAX_BODY_BYTES = 64 * 1024
 
 export function createSocialServer(config: ServerConfig = {}) {
-  const store = new ServerStore()
+  const store = new ServerStore(config.dbPath ?? ':memory:')
   const k = config.kAnonymityThreshold ?? 5
   const floor = config.similarityFloor ?? 0.25
+  // 写操作限流：默认允许攒 10 次、每分钟回 6 次。
+  // 正常用户一天发不了几条，这个额度绰绰有余；刷屏的会被卡住。
+  const writeLimiter = new RateLimiter(config.writeBurst ?? 10, config.writePerSec ?? 0.1)
+
+  // nonce 表只需要覆盖时间窗，定期清掉窗外的，避免无限增长
+  const pruneTimer = setInterval(() => {
+    store.pruneNonces(Date.now() - CLOCK_SKEW_MS)
+  }, 60_000)
+  pruneTimer.unref()
 
   const server = createServer((req, res) => {
     void handle(req, res).catch((err: unknown) => {
@@ -62,10 +82,44 @@ export function createSocialServer(config: ServerConfig = {}) {
     send(res, 404, { error: 'not found' })
   }
 
+  /**
+   * 写操作的统一前置：验签 → 防重放 → 封禁 → 限流。
+   *
+   * 顺序是刻意的：先证明「你是谁」，才谈得上「你是不是被封了」和
+   * 「你的配额还剩多少」。反过来会让未验签的请求也能消耗别人的配额。
+   */
+  function authorizeWrite(
+    req: IncomingMessage,
+    res: ServerResponse,
+    raw: string,
+  ): string | undefined {
+    const now = Date.now()
+    const signature = header(req, 'x-social-signature')
+    const auth = verifyRequest(
+      raw,
+      header(req, 'x-social-key'),
+      signature,
+      header(req, 'x-social-timestamp'),
+      now,
+    )
+    if (!auth.ok) { send(res, 401, { error: auth.reason }); return undefined }
+
+    // 签名本身就是天然的 nonce：内容和时间戳都在里面
+    if (!store.claimNonce(signature as string, now)) {
+      send(res, 409, { error: '请求已被处理过（重放）' })
+      return undefined
+    }
+    if (store.isBanned(auth.publicKey)) { send(res, 403, { error: 'banned' }); return undefined }
+    if (!writeLimiter.take(auth.publicKey, now)) {
+      send(res, 429, { error: '写入过于频繁' })
+      return undefined
+    }
+    return auth.publicKey
+  }
+
   function publish(req: IncomingMessage, res: ServerResponse, raw: string): void {
-    const auth = verifyRequest(raw, header(req, 'x-social-key'), header(req, 'x-social-signature'))
-    if (!auth.ok) return send(res, 401, { error: auth.reason })
-    if (store.isBanned(auth.publicKey)) return send(res, 403, { error: 'banned' })
+    const publisher = authorizeWrite(req, res, raw)
+    if (publisher === undefined) return
 
     let body: {
       claim?: unknown
@@ -78,11 +132,19 @@ export function createSocialServer(config: ServerConfig = {}) {
     if (typeof body.claim !== 'string' || body.claim.trim().length === 0) {
       return send(res, 400, { error: 'claim 必填' })
     }
-    if (!Array.isArray(body.topicVector) || body.topicVector.some(n => typeof n !== 'number')) {
-      return send(res, 400, { error: 'topicVector 必须是数字数组' })
+    if (body.claim.length > MAX_CLAIM_CHARS) {
+      return send(res, 400, { error: `claim 超过 ${MAX_CLAIM_CHARS} 字` })
     }
+    if (typeof body.reasoning === 'string' && body.reasoning.length > MAX_REASONING_CHARS) {
+      return send(res, 400, { error: `reasoning 超过 ${MAX_REASONING_CHARS} 字` })
+    }
+
+    // ★ 入站向量必须重新归一化，理由见 vector.ts
+    const vector = normalizeIncoming(body.topicVector)
+    if (!vector.ok) return send(res, 400, { error: vector.reason })
+
     // ephemeralId 声称的身份必须和验签用的公钥一致，否则可以冒名发布
-    if (body.ephemeralId !== auth.publicKey) {
+    if (body.ephemeralId !== publisher) {
       return send(res, 400, { error: 'ephemeralId 与签名公钥不一致' })
     }
 
@@ -90,8 +152,8 @@ export function createSocialServer(config: ServerConfig = {}) {
       cardId: randomUUID(),
       claim: body.claim,
       ...(typeof body.reasoning === 'string' ? { reasoning: body.reasoning } : {}),
-      topicVector: body.topicVector as number[],
-      publisher: auth.publicKey,
+      topicVector: vector.vector,
+      publisher,
       createdAt: Date.now(),
     }
     store.add(card)
@@ -99,8 +161,8 @@ export function createSocialServer(config: ServerConfig = {}) {
   }
 
   function retract(req: IncomingMessage, res: ServerResponse, raw: string, cardId: string): void {
-    const auth = verifyRequest(raw, header(req, 'x-social-key'), header(req, 'x-social-signature'))
-    if (!auth.ok) return send(res, 401, { error: auth.reason })
+    const requester = authorizeWrite(req, res, raw)
+    if (requester === undefined) return
 
     // 签名覆盖的是请求体里的 cardId，必须和 URL 上的一致，
     // 否则一个签名可以被挪去删任意卡片
@@ -113,7 +175,7 @@ export function createSocialServer(config: ServerConfig = {}) {
     const card = store.get(cardId)
     if (!card) return sendEmpty(res, 404)
     // 只有发布者能删。少了这一条，relevant() 返回的 cardId 就成了删除令牌。
-    if (card.publisher !== auth.publicKey) return send(res, 403, { error: '不是发布者' })
+    if (card.publisher !== requester) return send(res, 403, { error: '不是发布者' })
 
     store.remove(cardId)
     sendEmpty(res, 204)
@@ -122,9 +184,12 @@ export function createSocialServer(config: ServerConfig = {}) {
   function relevant(res: ServerResponse, raw: string): void {
     let body: { topicVector?: unknown, limit?: unknown }
     try { body = JSON.parse(raw) } catch { return send(res, 400, { error: 'bad json' }) }
-    if (!Array.isArray(body.topicVector)) return send(res, 400, { error: 'topicVector 必填' })
+    // ★ 查询向量同样必须归一化 —— 不然一个大模长向量就能匹配所有卡片，
+    //   把话题范围整个绕过，把卡池当列表拉
+    const normalized = normalizeIncoming(body.topicVector)
+    if (!normalized.ok) return send(res, 400, { error: normalized.reason })
 
-    const vector = body.topicVector as number[]
+    const vector = normalized.vector
     const limit = typeof body.limit === 'number' ? Math.min(body.limit, 50) : 10
 
     const hits = store.all()
@@ -159,7 +224,10 @@ export function createSocialServer(config: ServerConfig = {}) {
           resolve(actual)
         })
       }),
-    close: (): Promise<void> => new Promise((resolve) => { server.close(() => { resolve() }) }),
+    close: (): Promise<void> => new Promise((resolve) => {
+      clearInterval(pruneTimer)
+      server.close(() => { store.close(); resolve() })
+    }),
   }
 }
 

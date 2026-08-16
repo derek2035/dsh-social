@@ -76,6 +76,16 @@ export function topicVector(text: string, dim: number = TOPIC_DIM): number[] {
 }
 
 /** 余弦相似度。两个向量都已归一化时等价于点积。 */
+/**
+ * 相似度。
+ *
+ * ⚠️ 这里算的是**点积**，不是完整的余弦公式 —— 它省掉了除以模长这一步，
+ *    前提是传进来的两个向量都已 L2 归一化。topicVector() 的输出满足这个前提。
+ *
+ *    前提不成立时它会给出任意大的值。**任何接收外部向量的地方都必须先归一化**，
+ *    否则一个模长很大的向量会和所有东西「相似」。服务端在
+ *    server/src/vector.ts 里做了这件事。
+ */
 export function cosine(a: readonly number[], b: readonly number[]): number {
   const n = Math.min(a.length, b.length)
   let dot = 0

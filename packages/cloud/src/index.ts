@@ -84,9 +84,10 @@ class SocialCloud extends SocialService {
       ephemeralId: id.publicKey,
     }
     const payload = JSON.stringify(body)
+    const signed = id.sign(payload)
     const res = await this.request('POST', '/v1/cards', {
       body: payload,
-      signature: id.sign(payload),
+      signed,
       publicKey: id.publicKey,
     })
 
@@ -113,7 +114,7 @@ class SocialCloud extends SocialService {
     const payload = JSON.stringify({ cardId: String(id) })
     const res = await this.request('DELETE', `/v1/cards/${encodeURIComponent(String(id))}`, {
       body: payload,
-      signature: identity.sign(payload),
+      signed: identity.sign(payload),
       publicKey: identity.publicKey,
       allowStatus: [204, 404],
     })
@@ -179,7 +180,7 @@ class SocialCloud extends SocialService {
     path: string,
     opts: {
       body?: string
-      signature?: string
+      signed?: { readonly signature: string, readonly timestamp: string }
       publicKey?: string
       allowStatus?: readonly number[]
     } = {},
@@ -192,7 +193,10 @@ class SocialCloud extends SocialService {
         signal: controller.signal,
         headers: {
           'content-type': 'application/json',
-          ...(opts.signature === undefined ? {} : { 'x-social-signature': opts.signature }),
+          ...(opts.signed === undefined ? {} : {
+            'x-social-signature': opts.signed.signature,
+            'x-social-timestamp': opts.signed.timestamp,
+          }),
           ...(opts.publicKey === undefined ? {} : { 'x-social-key': opts.publicKey }),
         },
         ...(opts.body === undefined ? {} : { body: opts.body }),
