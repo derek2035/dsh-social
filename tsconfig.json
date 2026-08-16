@@ -3,7 +3,10 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022"],
+    // 含 DOM 是因为 packages/web/src/client 是真的浏览器代码。
+    // 代价：宿主侧代码误用 window/document 也能过类型检查。
+    // 真出问题的话应该拆成两个 tsconfig，现在还不值得。
+    "lib": ["ES2022", "DOM"],
     "types": ["node"],
 
     "strict": true,
